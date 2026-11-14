@@ -77,6 +77,7 @@ correctness separately.
 
 ## Roadmap
 
-Packet-specific parsers and encoders, complete validation, broader boundary and interoperability testing, and MQTT 5 are future work. Contributions are welcome.
+See [ROADMAP.md](ROADMAP.md) for the proposed MQTT 3.1.1 codec milestones,
+acceptance criteria, and later product decisions. Contributions are welcome.
 
 MIT licensed; see [LICENSE](LICENSE).

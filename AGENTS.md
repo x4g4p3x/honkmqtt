@@ -3,7 +3,8 @@
 HonkMQTT is an experimental, transport-independent MQTT 3.1.1 framing and
 topic-filter library written in Goose. `honkmqtt.goose` contains the library;
 `tests/test.goose` and `examples/basic.goose` exercise its public API. Read
-the README for its explicit scope and limitations before changing behavior.
+the README and `ROADMAP.md` for scope, limitations and milestone criteria.
+Project-specific Codex workflows are in `.agents/skills/`.
 
 ## Verification
 
