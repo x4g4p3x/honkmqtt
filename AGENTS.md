@@ -8,12 +8,12 @@ the README for its explicit scope and limitations before changing behavior.
 ## Verification
 
 - Use Goose v2026.4 or newer. Run `goose tests/test.goose` and
-  `goose tests/test.goose --debug`; run `goose build tests/test.goose` when a
-  supported native C compiler is available. Run the resulting executable too.
+  `goose tests/publish.goose`, including each with `--debug`; build and run
+  both tests natively when a supported C compiler is available.
 - Test malformed and truncated input, boundary lengths, unchanged output on
   errors, and topic/UTF-8 edge cases when touching the relevant code. Incomplete
-  frames must consume zero bytes. Do not claim packet-body validation, MQTT
-  conformance, or production security without evidence beyond framing tests.
+  frames must consume zero bytes. Do not claim validation of other packet bodies,
+  MQTT conformance, or production security without appropriate evidence.
 - Preserve caller-owned buffers, documented non-overlap requirements, bounds,
   error behavior, and transport independence. Treat all input as untrusted.
 - For performance changes, measure representative complete operations before and

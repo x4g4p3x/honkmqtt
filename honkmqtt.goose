@@ -118,6 +118,36 @@ fn valid_filter(filter: const u8[:]) -> bool {
     return true;
 }
 
+// Parse one MQTT 3.1.1 PUBLISH without copying. On success returns status,
+// consumed bytes, topic offset, topic length, payload offset, packet identifier.
+// The payload ends at consumed; identifier is zero for QoS 0. Offsets refer to
+// input, which must stay available while the caller uses them. On any error all
+// other results are zero. max_body limits the MQTT remaining length.
+fn publish(input: const u8[:], max_body: i64) -> i64, i64, i64, i64, i64, i64 {
+    if max_body < 0 { return INVALID, 0, 0, 0, 0, 0; }
+    let status, prefix, body = header(input);
+    if status != OK { return status, 0, 0, 0, 0, 0; }
+    if input[0] / 16 != 3 || body > max_body { return INVALID, 0, 0, 0, 0, 0; }
+    if input.len - prefix < body { return INCOMPLETE, 0, 0, 0, 0, 0; }
+    if body < 2 { return INVALID, 0, 0, 0, 0, 0; }
+    let end = prefix + body;
+    let topic_len = (input[prefix] as i64) * 256 + input[prefix + 1];
+    let topic_start = prefix + 2;
+    if topic_len > end - topic_start { return INVALID, 0, 0, 0, 0, 0; }
+    let topic_end = topic_start + topic_len;
+    if !valid_topic(input[topic_start..topic_end]) { return INVALID, 0, 0, 0, 0, 0; }
+    let qos = (input[0] / 2) % 4;
+    var payload_start = topic_end;
+    var identifier = 0;
+    if qos > 0 {
+        if end - payload_start < 2 { return INVALID, 0, 0, 0, 0, 0; }
+        identifier = (input[payload_start] as i64) * 256 + input[payload_start + 1];
+        if identifier == 0 { return INVALID, 0, 0, 0, 0, 0; }
+        payload_start += 2;
+    }
+    return OK, end, topic_start, topic_len, payload_start, identifier;
+}
+
 // Returns false for invalid UTF-8, topic names, or wildcard syntax.
 fn matches(filter: const u8[:], topic: const u8[:]) -> bool {
     if !valid_filter(filter) || !valid_topic(topic) { return false; }

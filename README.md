@@ -10,11 +10,25 @@ This is an early foundation, **not a complete MQTT client or a complete MQTT 3.1
 
 - Fixed-header parsing with bounded MQTT remaining lengths, flag checks, and incremental frame detection. Incomplete frames consume no bytes.
 - Encoding an opaque body into a caller-provided buffer.
+- Zero-copy parsing of MQTT 3.1.1 PUBLISH frames, including topic and packet
+  identifier validation.
 - UTF-8 and topic name/filter checks, including wildcard matching and the `$` topic rule.
 
-It does **not** parse or validate packet bodies, produce packet-specific structures, validate CONNECT or PUBLISH fields, implement QoS/session state, perform network I/O, support MQTT 5 properties, or claim protocol conformance. It rejects non-minimal remaining-length encodings. Applications must validate packet bodies before acting on untrusted data. The UTF-8 checks enforce well-formed Unicode scalar values and exclude U+0000; they do not reject additional code points discouraged by MQTT. Do not use this as a security boundary or production MQTT implementation yet.
+It does **not** parse or validate other packet bodies, validate application payloads, implement QoS/session state, perform network I/O, support MQTT 5 properties, or claim protocol conformance. It rejects non-minimal remaining-length encodings. Applications must validate other packet bodies before acting on untrusted data. The UTF-8 checks enforce well-formed Unicode scalar values and exclude U+0000; they do not reject additional code points discouraged by MQTT. Do not use this as a security boundary or production MQTT implementation yet.
 
 The fixed-header and frame functions accept `const u8[:]` and return status codes; `frame` reports how many bytes to consume only on success. Keep incomplete input in your own bounded buffer and retry after receiving more data. Supply a maximum permitted body size to `frame` to limit buffering. `encode` requires a non-overlapping output buffer. The library never owns the transport.
+
+`publish(input, max_body)` accepts a complete or partial MQTT 3.1.1 PUBLISH
+frame and returns `(status, consumed, topic_offset, topic_length,
+payload_offset, packet_identifier)`. On success, the topic is
+`input[topic_offset..topic_offset + topic_length]` and the payload is
+`input[payload_offset..consumed]`; these refer to the original input, which
+must remain available. The identifier is zero for QoS 0 and nonzero for QoS 1
+or 2. It checks the frame flags, nonempty UTF-8 topic without wildcards, and
+identifier when required. It does not interpret the payload or enforce protocol
+session rules. Non-PUBLISH packets, malformed bodies, and lengths over
+`max_body` return `INVALID`; truncated frames return `INCOMPLETE`. All other
+return values are zero on failure, and trailing frames are left unconsumed.
 
 ## Use
 
@@ -35,7 +49,10 @@ From a project elsewhere, the import can use `"x4g4p3x/honkmqtt@<commit>"`. See 
 ```sh
 goose tests/test.goose
 goose tests/test.goose --debug
+goose tests/publish.goose
+goose tests/publish.goose --debug
 goose build tests/test.goose
+goose build tests/publish.goose
 ```
 
 Goose's in-process runner needs no separate C compiler on Windows. Native `goose build` needs a supported C compiler. The tests are deterministic software checks, not an interoperability or conformance suite. The protocol reference is the [OASIS MQTT 3.1.1 standard](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html).
