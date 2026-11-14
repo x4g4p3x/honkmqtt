@@ -1,0 +1,143 @@
+namespace honkmqtt;
+
+// Status codes shared by the buffer-oriented API.
+const OK = 0;
+const INCOMPLETE = 1;
+const INVALID = 2;
+const NO_SPACE = 3;
+const MAX_REMAINING = 268435455;
+
+// Decode one complete fixed header. Returns status, header length, body length.
+// An incomplete result consumes nothing; the caller retains and extends the buffer.
+fn header(input: const u8[:]) -> i64, i64, i64 {
+    if input.len < 1 { return INCOMPLETE, 0, 0; }
+    let kind = input[0] / 16;
+    let flags = input[0] % 16;
+    if kind == 0 || kind == 15 { return INVALID, 0, 0; }
+    if kind == 3 {
+        let qos = (flags / 2) % 4;
+        if qos == 3 || (qos == 0 && flags >= 8) { return INVALID, 0, 0; }
+    } else if kind == 6 || kind == 8 || kind == 10 {
+        if flags != 2 { return INVALID, 0, 0; }
+    } else if flags != 0 { return INVALID, 0, 0; }
+    var value = 0;
+    var factor = 1;
+    for i in 4 {
+        if input.len <= i + 1 { return INCOMPLETE, 0, 0; }
+        let digit = input[i + 1] as i64;
+        value += (digit % 128) * factor;
+        if digit < 128 {
+            // Reject non-minimal encodings to avoid ambiguous framing.
+            if i > 0 && digit == 0 { return INVALID, 0, 0; }
+            return OK, i + 2, value;
+        }
+        factor *= 128;
+    }
+    return INVALID, 0, 0;
+}
+
+// Decode the first frame, without copying. Its bytes are input[0..consumed].
+// max_body bounds memory committed by the transport; negative values are invalid.
+fn frame(input: const u8[:], max_body: i64) -> i64, i64 {
+    if max_body < 0 { return INVALID, 0; }
+    let status, prefix, body = header(input);
+    if status != OK { return status, 0; }
+    if body > max_body { return INVALID, 0; }
+    if input.len - prefix < body { return INCOMPLETE, 0; }
+    return OK, prefix + body;
+}
+
+// Write a fixed header and opaque body. Returns status and bytes written.
+// Output must not overlap body. This checks framing flags, not packet semantics.
+fn encode(first: u8, body: const u8[:], out: u8[:]) -> i64, i64 {
+    if body.len > MAX_REMAINING { return INVALID, 0; }
+    var prefix: u8[5] = [0; 5];
+    prefix[0] = first;
+    var n = body.len;
+    var width = 1;
+    loop {
+        var digit = n % 128;
+        n = n / 128;
+        if n > 0 { digit += 128; }
+        prefix[width] = digit as u8;
+        width += 1;
+        if n == 0 { break; }
+    }
+    let status, _, _ = header(prefix[0..width]);
+    if status != OK { return INVALID, 0; }
+    if out.len < width + body.len { return NO_SPACE, 0; }
+    for i in width { out[i] = prefix[i]; }
+    for i in body.len { out[width + i] = body[i]; }
+    return OK, width + body.len;
+}
+
+// MQTT strings use well-formed UTF-8 and cannot contain U+0000.
+fn valid_utf8(text: const u8[:]) -> bool {
+    var i = 0;
+    while i < text.len {
+        let a = text[i] as i64;
+        if a == 0 { return false; }
+        if a < 128 { i += 1; continue; }
+        var count = 0;
+        var value = 0;
+        var minimum = 0;
+        if a >= 194 && a <= 223 { count = 2; value = a - 192; minimum = 128; }
+        else if a >= 224 && a <= 239 { count = 3; value = a - 224; minimum = 2048; }
+        else if a >= 240 && a <= 244 { count = 4; value = a - 240; minimum = 65536; }
+        else { return false; }
+        if text.len - i < count { return false; }
+        for j in 1..count {
+            let b = text[i + j] as i64;
+            if b < 128 || b > 191 { return false; }
+            value = value * 64 + b - 128;
+        }
+        if value < minimum || value > 1114111 || (value >= 55296 && value <= 57343) { return false; }
+        i += count;
+    }
+    return true;
+}
+
+// Topic names and filters are length-bounded MQTT UTF-8 strings.
+fn valid_topic(topic: const u8[:]) -> bool {
+    if topic.len == 0 || topic.len > 65535 || !valid_utf8(topic) { return false; }
+    for c in topic { if c == 0 || c == '+' || c == '#' { return false; } }
+    return true;
+}
+
+fn valid_filter(filter: const u8[:]) -> bool {
+    if filter.len == 0 || filter.len > 65535 || !valid_utf8(filter) { return false; }
+    for c, i in filter {
+        if c == 0 { return false; }
+        if c == '#' {
+            if i != filter.len - 1 || (i > 0 && filter[i - 1] != '/') { return false; }
+        }
+        if c == '+' {
+            if (i > 0 && filter[i - 1] != '/') || (i + 1 < filter.len && filter[i + 1] != '/') { return false; }
+        }
+    }
+    return true;
+}
+
+// Returns false for invalid UTF-8, topic names, or wildcard syntax.
+fn matches(filter: const u8[:], topic: const u8[:]) -> bool {
+    if !valid_filter(filter) || !valid_topic(topic) { return false; }
+    if topic[0] == '$' && (filter[0] == '+' || filter[0] == '#') { return false; }
+    var f = 0;
+    var t = 0;
+    loop {
+        if f < filter.len && filter[f] == '#' { return true; }
+        if f < filter.len && filter[f] == '+' {
+            f += 1;
+            while t < topic.len && topic[t] != '/' { t += 1; }
+        } else {
+            while f < filter.len && filter[f] != '/' {
+                if t >= topic.len || filter[f] != topic[t] { return false; }
+                f += 1; t += 1;
+            }
+        }
+        if f == filter.len && t == topic.len { return true; }
+        if f < filter.len && filter[f] == '/' && f + 2 == filter.len && filter[f + 1] == '#' && t == topic.len { return true; }
+        if f >= filter.len || t >= topic.len || filter[f] != '/' || topic[t] != '/' { return false; }
+        f += 1; t += 1;
+    }
+}

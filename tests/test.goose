@@ -1,0 +1,41 @@
+import honkmqtt from "..";
+
+fn main() {
+    let s, h, n = honkmqtt::header([0x30, 0x80, 0x01]);
+    assert(s == honkmqtt::OK && h == 3 && n == 128);
+    let a, _, _ = honkmqtt::header([0x30, 0x80]); assert(a == honkmqtt::INCOMPLETE);
+    let b, _, _ = honkmqtt::header([0x30, 0x80, 0x00]); assert(b == honkmqtt::INVALID);
+    let c, _, _ = honkmqtt::header([0x82, 0x80, 0x80, 0x80, 0x80]); assert(c == honkmqtt::INVALID);
+    let d, _, _ = honkmqtt::header([0x81, 0]); assert(d == honkmqtt::INVALID);
+    let e, _, _ = honkmqtt::header([0x36, 0]); assert(e == honkmqtt::INVALID);
+    let m, ml, mv = honkmqtt::header([0x30, 0xff, 0xff, 0xff, 0x7f]);
+    assert(m == honkmqtt::OK && ml == 5 && mv == 268435455);
+    let bad, _, _ = honkmqtt::header([0xf0, 0]); assert(bad == honkmqtt::INVALID);
+    var tiny: u8[1] = [0; 1];
+    let full, written = honkmqtt::encode(0xc0, "", tiny);
+    assert(full == honkmqtt::NO_SPACE && written == 0);
+    let invalid, _ = honkmqtt::encode(0x81, "", tiny); assert(invalid == honkmqtt::INVALID);
+    var out: u8[16] = [0; 16];
+    let w, size = honkmqtt::encode(0x30, "abc", out);
+    assert(w == honkmqtt::OK && size == 5 && out[0] == 0x30 && out[1] == 3 && out[4] == 'c');
+    let f, consumed = honkmqtt::frame(out[0..4], 20); assert(f == honkmqtt::INCOMPLETE && consumed == 0);
+    let g, used = honkmqtt::frame(out[0..5], 20); assert(g == honkmqtt::OK && used == 5);
+    let i, _ = honkmqtt::frame(out[0..5], 2); assert(i == honkmqtt::INVALID);
+    assert(honkmqtt::matches("sport/+/player1", "sport/tennis/player1"));
+    assert(honkmqtt::matches("sport/#", "sport"));
+    assert(honkmqtt::matches("sport/+", "sport/"));
+    assert(!honkmqtt::matches("#", "$SYS/status"));
+    assert(honkmqtt::matches("$SYS/#", "$SYS/status"));
+    assert(!honkmqtt::matches("sport+", "sport"));
+    assert(!honkmqtt::matches("a/#/c", "a/b/c"));
+    assert(!honkmqtt::matches("a/+", "a"));
+    assert(honkmqtt::matches("+/+", "/"));
+    assert(!honkmqtt::matches("a", "a/b"));
+    assert(!honkmqtt::valid_topic([0xff]));
+    assert(honkmqtt::valid_utf8([0xf0, 0x9f, 0xa6, 0x86]));
+    assert(!honkmqtt::valid_utf8([0xc0, 0x80]));
+    assert(!honkmqtt::valid_utf8([0xed, 0xa0, 0x80]));
+    assert(!honkmqtt::valid_utf8([0xf4, 0x90, 0x80, 0x80]));
+    assert(!honkmqtt::valid_utf8([0xe2, 0x82]));
+    print("HonkMQTT tests passed");
+}
