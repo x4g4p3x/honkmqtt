@@ -34,10 +34,26 @@ From a project elsewhere, the import can use `"x4g4p3x/honkmqtt@<commit>"`. See 
 
 ```sh
 goose tests/test.goose
+goose tests/test.goose --debug
 goose build tests/test.goose
 ```
 
 Goose's in-process runner needs no separate C compiler on Windows. Native `goose build` needs a supported C compiler. The tests are deterministic software checks, not an interoperability or conformance suite. The protocol reference is the [OASIS MQTT 3.1.1 standard](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html).
+
+For a small repeatable performance workload, build `tests/benchmark.goose` in
+release mode and time the resulting executable repeatedly, for example:
+
+```sh
+goose build tests/benchmark.goose
+./tests/benchmark "sensor reading" "sensors/+/temperature" "sensors/kitchen/temperature" "sensors/kitchen/humidity"
+```
+
+On Windows use `tests/benchmark.exe`. Each run performs one million encodes,
+frame checks, and topic matches and prints a checksum (16500000 for these
+inputs). It exercises a single short body and two ASCII topics, with no network
+I/O; it is not a general throughput or safety assessment. Compare repeated
+timings on the same machine, compiler, build options, and inputs, and verify
+correctness separately.
 
 ## Roadmap
 
