@@ -36,6 +36,11 @@ fn main() {
     for n in 131 { rejected(large[0..n], 128, honkmqtt::INCOMPLETE); }
     rejected(large, 127, honkmqtt::INVALID);
     rejected([0x30, 0xff, 0xff, 0xff, 0x7f], 268435455, honkmqtt::INCOMPLETE);
+    var max_topic: u8[65541] = [0x61; 65541];
+    max_topic[0] = 0x30; max_topic[1] = 0x81; max_topic[2] = 0x80; max_topic[3] = 4;
+    max_topic[4] = 0xff; max_topic[5] = 0xff;
+    let ms, mu, mt, ml, mp, mi = honkmqtt::publish(max_topic, 65537);
+    assert(ms == honkmqtt::OK && mu == 65541 && mt == 6 && ml == 65535 && mp == 65541 && mi == 0);
 
     rejected([0xc0, 0], 10, honkmqtt::INVALID);
     rejected([0x36, 0], 10, honkmqtt::INVALID);

@@ -51,8 +51,11 @@ goose tests/test.goose
 goose tests/test.goose --debug
 goose tests/publish.goose
 goose tests/publish.goose --debug
+goose tests/coverage.goose
+goose tests/coverage.goose --debug
 goose build tests/test.goose
 goose build tests/publish.goose
+goose build tests/coverage.goose
 ```
 
 Goose's in-process runner needs no separate C compiler on Windows. Native `goose build` needs a supported C compiler. The tests are deterministic software checks, not an interoperability or conformance suite. The protocol reference is the [OASIS MQTT 3.1.1 standard](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html).

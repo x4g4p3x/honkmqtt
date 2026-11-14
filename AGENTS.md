@@ -7,9 +7,10 @@ the README for its explicit scope and limitations before changing behavior.
 
 ## Verification
 
-- Use Goose v2026.4 or newer. Run `goose tests/test.goose` and
-  `goose tests/publish.goose`, including each with `--debug`; build and run
-  both tests natively when a supported C compiler is available.
+- Use Goose v2026.4 or newer. Run `goose tests/test.goose`,
+  `goose tests/publish.goose`, and `goose tests/coverage.goose`, including each
+  with `--debug`; build and run them natively when a supported C compiler is
+  available.
 - Test malformed and truncated input, boundary lengths, unchanged output on
   errors, and topic/UTF-8 edge cases when touching the relevant code. Incomplete
   frames must consume zero bytes. Do not claim validation of other packet bodies,
