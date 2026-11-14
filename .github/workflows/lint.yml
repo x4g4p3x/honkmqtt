@@ -1,0 +1,41 @@
+name: Lint
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  goose:
+    name: Goose lint (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Install Goose v2026.4
+        shell: pwsh
+        run: |
+          if ($IsWindows) {
+            $asset = 'goose-v2026.4-windows-x64.zip'
+            $expected = '87ceb0ff2394e0ac4154b6c6b865c084cadbf236558cc956b114f37d6e619cdb'
+          } else {
+            $asset = 'goose-v2026.4-linux-x64.tar.gz'
+            $expected = '559ad7572df89fcd1273512d8679528bcdf876c252ec1f31608d3808b24125b3'
+          }
+          $archive = Join-Path $env:RUNNER_TEMP $asset
+          $destination = Join-Path $env:RUNNER_TEMP 'goose'
+          Invoke-WebRequest -Uri "https://github.com/aardappel/goose/releases/download/v2026.4/$asset" -OutFile $archive
+          if ((Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant() -ne $expected) { throw 'Goose archive hash mismatch' }
+          New-Item -ItemType Directory -Path $destination | Out-Null
+          if ($IsWindows) { Expand-Archive -Path $archive -DestinationPath $destination }
+          else { tar -xzf $archive -C $destination; if ($LASTEXITCODE -ne 0) { throw 'Goose extraction failed' } }
+          $executable = Get-ChildItem $destination -File -Recurse | Where-Object { $_.Name -in @('goose', 'goose.exe') } | Select-Object -First 1
+          if (-not $executable) { throw 'Goose executable not found in archive' }
+          $executable.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - name: Check Goose formatting and diagnostics
+        run: python scripts/lint.py

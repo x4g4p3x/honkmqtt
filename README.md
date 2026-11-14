@@ -58,6 +58,12 @@ goose build tests/publish.goose
 goose build tests/coverage.goose
 ```
 
+Run `python scripts/lint.py` to check Goose formatting and compiler
+diagnostics across the repository. It requires Python 3 and Goose on PATH;
+set `GOOSE` to the executable path if needed. Fix formatting with
+`goose format .`. The CI workflow is configured to run these checks with Goose
+v2026.4 on Linux and Windows.
+
 Goose's in-process runner needs no separate C compiler on Windows. Native `goose build` needs a supported C compiler. The tests are deterministic software checks, not an interoperability or conformance suite. The protocol reference is the [OASIS MQTT 3.1.1 standard](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html).
 
 For a small repeatable performance workload, build `tests/benchmark.goose` in

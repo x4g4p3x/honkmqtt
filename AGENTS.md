@@ -8,6 +8,8 @@ Project-specific Codex workflows are in `.agents/skills/`.
 
 ## Verification
 
+- Run `python scripts/lint.py` with Goose on PATH (or set `GOOSE` to its
+  executable). It checks Goose formatting and fails on compiler diagnostics.
 - Use Goose v2026.4 or newer. Run `goose tests/test.goose`,
   `goose tests/publish.goose`, and `goose tests/coverage.goose`, including each
   with `--debug`; build and run them natively when a supported C compiler is

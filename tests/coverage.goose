@@ -23,10 +23,10 @@ fn flags() {
 }
 
 fn lengths() {
-    var body: u8[16384] = [0; 16384];
+    var body:   u8[16384] = [0; 16384];
     var output: u8[16389] = [0; 16389];
     for i in body.len { body[i] = (i % 251) as u8; }
-    let sizes: i64[6] = [0, 1, 127, 128, 16383, 16384];
+    let sizes:  i64[6] = [0, 1, 127, 128, 16383, 16384];
     let widths: i64[6] = [2, 2, 2, 3, 3, 4];
     for size, k in sizes {
         let expected = size + widths[k];

@@ -1,0 +1,2 @@
+# Goose's formatter uses LF; keep checks consistent across operating systems.
+*.goose text eol=lf
