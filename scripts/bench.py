@@ -4,7 +4,8 @@
 Builds native -O2 executables, discards warmup runs, then records at least
 seven steady-state samples per workload. Timing boundary: the workload's own
 steady_seconds (loop only; excludes process startup). Checksums must match
-expected values. This script does not assert wall-clock budgets.
+expected values derived independently of the timed path. This script does not
+assert wall-clock budgets.
 """
 
 from __future__ import annotations
@@ -23,19 +24,16 @@ WORKLOADS = (
     {
         "name": "encode_frame_match",
         "source": Path("tests/benchmark.goose"),
-        "args": [
-            "sensor reading",
-            "sensors/+/temperature",
-            "sensors/kitchen/temperature",
-            "sensors/kitchen/humidity",
-        ],
-        "expected_checksum": 16500000,
+        "args": [],
+        # 1e6 iters over 3 runtime-copied cases; see tests/benchmark.goose.
+        "expected_checksum": 118833334,
     },
     {
         "name": "publish_parse",
         "source": Path("tests/bench_publish.goose"),
         "args": [],
-        "expected_checksum": 4679000000,
+        # 1e6 iters over 4 runtime-copied PUBLISH cases + payload-1 byte term.
+        "expected_checksum": 17700500000,
     },
 )
 
@@ -106,6 +104,7 @@ def main() -> int:
     print((toolchain.stdout or toolchain.stderr).strip())
     print(f"build=goose build -O2 (default optimized inlining)")
     print(f"timing_boundary=steady_seconds from workload clock() around timed loop only")
+    print(f"anti_elision=runtime-varying case buffers; checksum binds parse/encode outputs")
     print(f"warmup={args.warmup} samples={args.samples} serialized=yes")
     print()
 
@@ -129,6 +128,7 @@ def main() -> int:
                 )
 
         samples: list[float] = []
+        clock_res: list[int] = []
         print(f"=== workload {workload['name']} ===")
         print(f"source={source.as_posix()}")
         print(f"command={' '.join(command)}")
@@ -146,9 +146,14 @@ def main() -> int:
                 )
             seconds = float(metrics["steady_seconds"])
             samples.append(seconds)
+            cases = metrics.get("cases", "?")
+            res_ns = metrics.get("clock_res_ns", "?")
+            if res_ns != "?":
+                clock_res.append(int(res_ns))
             print(
                 f"sample={index + 1} iterations={metrics['iterations']} "
-                f"checksum={checksum} steady_seconds={seconds:.9f}"
+                f"cases={cases} checksum={checksum} "
+                f"steady_seconds={seconds:.9f} clock_res_ns={res_ns}"
             )
 
         ordered = sorted(samples)
@@ -158,6 +163,11 @@ def main() -> int:
             f"median={ordered[len(ordered) // 2]:.9f} max={ordered[-1]:.9f} "
             f"mean={mean:.9f}"
         )
+        if clock_res:
+            print(
+                f"clock_res_ns raw={clock_res} "
+                f"min={min(clock_res)} max={max(clock_res)}"
+            )
         print()
 
         for path in (exe, exe.with_suffix(".obj"), exe.with_suffix(".o"), exe.with_suffix(".pdb")):

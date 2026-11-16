@@ -121,25 +121,31 @@ discard warmup, and record at least seven serialized steady-state samples for:
 
 | Workload | Source | What it measures | Expected checksum |
 | --- | --- | --- | --- |
-| `encode_frame_match` | `tests/benchmark.goose` | 1e6 encode+frame + alternating topic matches | `16500000` |
-| `publish_parse` | `tests/bench_publish.goose` | 1e6 `publish` parses of a fixed QoS 1 vector | `4679000000` |
+| `encode_frame_match` | `tests/benchmark.goose` | 1e6 encode+frame + matches over 3 runtime-copied cases | `118833334` |
+| `publish_parse` | `tests/bench_publish.goose` | 1e6 `publish` parses over 4 runtime-copied PUBLISH cases | `17700500000` |
 
 Timing boundary: each program prints `steady_seconds` from Goose `clock()`
-around the timed loop only (process startup excluded). The runner checks
+around the timed loop only (process startup excluded), plus `clock_res_ns`.
+Inputs vary by iteration (mutable case buffers) so a constant packet cannot be
+parsed once and reused; checksums bind live outputs. The runner checks
 checksums and prints raw samples plus min/median/max/mean; it does **not**
 assert wall-clock budgets. Manual single runs remain valid, for example:
 
 ```sh
 goose build -O2 tests/benchmark.goose
-./tests/benchmark "sensor reading" "sensors/+/temperature" "sensors/kitchen/temperature" "sensors/kitchen/humidity"
+./tests/benchmark
 goose build -O2 tests/bench_publish.goose
 ./tests/bench_publish
 ```
 
-A recorded local Windows x64 capture (machine, toolchain, raw samples, limits)
-is in [baselines/m0-local-windows.md](baselines/m0-local-windows.md). These
-workloads use short fixed inputs and no network I/O; they are not a general
-throughput, latency SLA, or safety assessment.
+A recorded local Windows x64 capture (machine, toolchain, anti-elision notes,
+raw samples, clock resolution, SHA-256 pins for the measured library/bench
+sources on a dirty tree, limits) is in
+[baselines/m0-local-windows.md](baselines/m0-local-windows.md). These
+workloads use short representative inputs and no network I/O; they are not a
+general throughput, latency SLA, or safety assessment. Linux host baselines
+remain a gap; this capture alone does not complete M0. Local-only until
+explicitly published.
 
 ## Roadmap
 

@@ -23,7 +23,9 @@ cases for each public operation. `tests/fuzz.goose` is a reproducible
 randomized smoke campaign (default seed `20261116`, ≥10000 cases) with saved
 regressions and deterministic generated boundaries. `scripts/bench.py` records
 optimized-build steady-state samples for encode/frame/match and PUBLISH parse
-workloads; a local Windows capture is in `baselines/m0-local-windows.md`.
+workloads with runtime-varying cases (anti-elision); a local Windows capture is
+in `baselines/m0-local-windows.md`. M0 is still in progress (Linux baselines
+gap).
 Goose v2026.4 has no source-mapped coverage mechanism in its documented CLI,
 so there is no measured coverage percentage. There is still no broker
 interoperability result or MQTT conformance certification. The PUBLISH parser
@@ -71,20 +73,29 @@ does not implement QoS or session state.
 - [x] Record representative optimized-build baselines, including PUBLISH parsing,
   with inputs, commands, machine, toolchain, timing boundaries and at least
   seven repeated samples after warmup per workload.
-  Evidence: `tests/bench_publish.goose`, updated `tests/benchmark.goose`,
+  Evidence: `tests/bench_publish.goose` (4 runtime-copied PUBLISH cases),
+  `tests/benchmark.goose` (3 runtime-copied encode/frame/match cases),
   `scripts/bench.py`, and `baselines/m0-local-windows.md` (Windows x64, Goose
   v2026.4 / clang 14.0.6, warmup 1 + 7 serialized `steady_seconds` samples,
-  checksum-verified). Timing boundary: loop-only `clock()`. Limitations:
-  local Windows capture only; short fixed inputs; no network; not a CI SLA or
-  universal speed claim. Linux host baselines remain an explicit gap.
+  checksum-verified against independent expectations; `clock_res_ns=100`
+  reported with raw sample variation).   Capture used working-tree bytes atop `39fbd8f` before the hardening freeze
+  commit; measured library/bench sources are pinned by SHA-256 in that baseline
+  note (manifest
+  `6c95ec565b0cd5922e77138c5f5aa06494e3eee5e478aab40a906df2ef006028`).
+  Anti-elision: per-iteration mutable case buffers; Goose `-O2` C and clang
+  `-O2` asm retain `honkmqtt_publish_g8` in the timed loop. Timing boundary:
+  loop-only `clock()`. Limitations: local Windows capture only; short
+  representative inputs; no network; not a CI SLA or universal speed claim.
+  Linux host baselines remain an explicit gap. This Windows baseline record
+  alone does **not** complete M0.
 
 **Exit:** automated normal and debug test runs pass; native builds pass on the
 declared supported environments; every public API has positive, negative and
 boundary cases; fuzz/randomized and benchmark workflows are reproducible and
 their limitations recorded. Missing platforms or tooling remain explicit gaps.
-M0 checklist items above are evidenced; Linux baseline samples and broader
-workloads remain optional follow-ups rather than unmarked blockers for the
-recorded Windows workflow.
+M0 remains **in progress**: Windows baseline workflow is evidenced with
+anti-elision notes; Linux baseline samples are still an unmarked-platform gap
+relative to the dual-target CI surface.
 
 ### M1 — Complete PUBLISH codec
 
