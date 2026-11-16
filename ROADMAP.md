@@ -82,11 +82,13 @@ does not implement QoS or session state.
   Anti-elision: clang `-O2` asm of Goose `-O2` C shows runtime stores then
   `callq honkmqtt_publish_g8` in the timed loop; encode/frame work remains in
   the combined timed loop with `honkmqtt_matches_g8` calls. Measured sources
-  pinned by git-blob SHA-256 in the baseline note. Timing boundary: loop-only
-  `clock()`. Limitations: local Windows capture only; short representative
-  inputs; no network; not a CI SLA or universal speed claim. Linux host
-  baselines remain an explicit gap. This Windows baseline record alone does
-  **not** complete M0.
+  frozen at `30061b2e650d26a93da958ac510e4f2cd1c1018f` and pinned by git-blob
+  SHA-256 in the baseline note (manifest
+  `bb36a45d1c4cbcd568ffc1ec1bab1fc0bbedd8cf2d59d328b573a3eac3d42bcd`). Timing
+  boundary: loop-only `clock()`. Limitations: local Windows capture only; short
+  representative inputs; no network; not a CI SLA or universal speed claim.
+  Linux host baselines remain an explicit gap. This Windows baseline record
+  alone does **not** complete M0.
 
 **Exit:** automated normal and debug test runs pass; native builds pass on the
 declared supported environments; every public API has positive, negative and

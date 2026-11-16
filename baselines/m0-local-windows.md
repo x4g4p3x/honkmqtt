@@ -12,18 +12,21 @@ marked complete from this capture alone (Linux host baselines remain a gap).
 | Measurement identity | SHA-256 of git blobs for library + benchmark sources (table below) |
 | Command | `python scripts/bench.py --warmup 1 --samples 7` |
 
-**SHA-256 of git blob bytes** (filled for the freeze commit that contains these
-measured sources; verify with `git show <freeze>:path | sha256sum`):
+**SHA-256 of git blob bytes** at freeze
+`30061b2e650d26a93da958ac510e4f2cd1c1018f` (`git show <freeze>:path`):
 
 | Path | SHA-256 | Size |
 | --- | --- | --- |
-| `honkmqtt.goose` | `PENDING_FREEZE` | |
-| `tests/bench_publish.goose` | `PENDING_FREEZE` | |
-| `tests/benchmark.goose` | `PENDING_FREEZE` | |
-| `scripts/bench.py` | `PENDING_FREEZE` | |
+| `honkmqtt.goose` | `fd26625e9203d50090387fce1ce3f2d20a82a016c18934aadeb3dea3a89708f6` | 7033 |
+| `tests/bench_publish.goose` | `daa494862aedf78f0a124722d4cecfd80057067124b56fc154aeeaf352635199` | 4851 |
+| `tests/benchmark.goose` | `27983bc233e674d4b44741aac79bea8166525d54de50c0231d2ea2948d7b6c33` | 5352 |
+| `scripts/bench.py` | `6d3e5b1cd35c2bdc42a6e1074a56992ad82199dd0bc1d81626a293eba1e643be` | 7053 |
 
-Freeze commit: `PENDING_FREEZE` (set in the docs pin commit after the workload
-freeze lands).
+Manifest SHA-256 (four `hash  path` lines, LF-separated):
+`bb36a45d1c4cbcd568ffc1ec1bab1fc0bbedd8cf2d59d328b573a3eac3d42bcd`
+
+Official samples below were captured from these workload bytes immediately
+before that freeze commit (same blob contents).
 
 Reproduce:
 
