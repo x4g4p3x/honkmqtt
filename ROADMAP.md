@@ -73,21 +73,20 @@ does not implement QoS or session state.
 - [x] Record representative optimized-build baselines, including PUBLISH parsing,
   with inputs, commands, machine, toolchain, timing boundaries and at least
   seven repeated samples after warmup per workload.
-  Evidence: `tests/bench_publish.goose` (4 runtime-copied PUBLISH cases),
-  `tests/benchmark.goose` (3 runtime-copied encode/frame/match cases),
-  `scripts/bench.py`, and `baselines/m0-local-windows.md` (Windows x64, Goose
-  v2026.4 / clang 14.0.6, warmup 1 + 7 serialized `steady_seconds` samples,
-  checksum-verified against independent expectations; `clock_res_ns=100`
-  reported with raw sample variation).   Capture used working-tree bytes atop `39fbd8f` before freeze
-  `cff9914501fa2f4bdc11242d65387350364d459c`; measured library/bench sources are
-  pinned by git-blob SHA-256 in that baseline note (manifest
-  `1e7329fc2d5a2e58c1cf39d7dae4b93c9162ea86681f96018caffbb69458f9cd`).
-  Anti-elision: per-iteration mutable case buffers; Goose `-O2` C and clang
-  `-O2` asm retain `honkmqtt_publish_g8` in the timed loop. Timing boundary:
-  loop-only `clock()`. Limitations: local Windows capture only; short
-  representative inputs; no network; not a CI SLA or universal speed claim.
-  Linux host baselines remain an explicit gap. This Windows baseline record
-  alone does **not** complete M0.
+  Evidence: `tests/bench_publish.goose` (4 PUBLISH cases with loop-index packet
+  mutations), `tests/benchmark.goose` (3 encode/frame/match cases with body and
+  topic mutations; legacy argv rejected), `scripts/bench.py`, and
+  `baselines/m0-local-windows.md` (Windows x64, Goose v2026.4 / clang 14.0.6,
+  warmup 1 + 7 serialized `steady_seconds` samples, checksum-verified against
+  independent expectations; `clock_res_ns=100` with raw sample variation).
+  Anti-elision: clang `-O2` asm of Goose `-O2` C shows runtime stores then
+  `callq honkmqtt_publish_g8` in the timed loop; encode/frame work remains in
+  the combined timed loop with `honkmqtt_matches_g8` calls. Measured sources
+  pinned by git-blob SHA-256 in the baseline note. Timing boundary: loop-only
+  `clock()`. Limitations: local Windows capture only; short representative
+  inputs; no network; not a CI SLA or universal speed claim. Linux host
+  baselines remain an explicit gap. This Windows baseline record alone does
+  **not** complete M0.
 
 **Exit:** automated normal and debug test runs pass; native builds pass on the
 declared supported environments; every public API has positive, negative and

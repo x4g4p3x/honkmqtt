@@ -25,15 +25,15 @@ WORKLOADS = (
         "name": "encode_frame_match",
         "source": Path("tests/benchmark.goose"),
         "args": [],
-        # 1e6 iters over 3 runtime-copied cases; see tests/benchmark.goose.
-        "expected_checksum": 118833334,
+        # 1e6 iters over 3 runtime-mutated cases; see tests/benchmark.goose.
+        "expected_checksum": 138498139,
     },
     {
         "name": "publish_parse",
         "source": Path("tests/bench_publish.goose"),
         "args": [],
-        # 1e6 iters over 4 runtime-copied PUBLISH cases + payload-1 byte term.
-        "expected_checksum": 17700500000,
+        # 1e6 iters over 4 runtime-mutated PUBLISH cases; see tests/bench_publish.goose.
+        "expected_checksum": 17675999524,
     },
 )
 

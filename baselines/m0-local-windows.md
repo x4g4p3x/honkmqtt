@@ -6,43 +6,26 @@ marked complete from this capture alone (Linux host baselines remain a gap).
 
 ## Source and commands
 
-Timed samples were captured while anti-elision workload changes were still
-uncommitted atop `39fbd8f4a65a66fda06125e7accc864484c5a256`. Identity of the
-measured library and benchmark sources is pinned by **SHA-256 of those file
-bytes** (unchanged through the commit that freezes them on this branch).
-
 | Pin | Value |
 | --- | --- |
 | Branch | `ao/m0-roadmap/m0-perf-baselines` |
-| Pre-hardening baseline commit | `39fbd8f4a65a66fda06125e7accc864484c5a256` |
-| Freeze commit (hardened workloads + hash table) | `cff9914501fa2f4bdc11242d65387350364d459c` |
-| Measurement identity | content hashes below (not the pre-hardening commit alone) |
+| Measurement identity | SHA-256 of git blobs for library + benchmark sources (table below) |
+| Command | `python scripts/bench.py --warmup 1 --samples 7` |
 
-**SHA-256 of git blob bytes** (`git show cff9914501fa2f4bdc11242d65387350364d459c:path`):
+**SHA-256 of git blob bytes** (filled for the freeze commit that contains these
+measured sources; verify with `git show <freeze>:path | sha256sum`):
 
 | Path | SHA-256 | Size |
 | --- | --- | --- |
-| `honkmqtt.goose` | `fd26625e9203d50090387fce1ce3f2d20a82a016c18934aadeb3dea3a89708f6` | 7033 |
-| `tests/bench_publish.goose` | `a3f40d46526ad5f23c6d276c5f989ee205eab02712c71b74ab1c1255a57c59ee` | 5141 |
-| `tests/benchmark.goose` | `9ff1ec9d0d4fdd0a53311185291e46c4e345488fea11eb6bc8d0803bdf0c2bcd` | 4218 |
-| `scripts/bench.py` | `13c9d278decf647f3375a19e92e384674c0fac0dcd85e68d768ecea431bd1018` | 7042 |
+| `honkmqtt.goose` | `PENDING_FREEZE` | |
+| `tests/bench_publish.goose` | `PENDING_FREEZE` | |
+| `tests/benchmark.goose` | `PENDING_FREEZE` | |
+| `scripts/bench.py` | `PENDING_FREEZE` | |
 
-Manifest SHA-256 (of the four `hash  path` lines above, LF-separated, paths as
-in the table):
-`1e7329fc2d5a2e58c1cf39d7dae4b93c9162ea86681f96018caffbb69458f9cd`
+Freeze commit: `PENDING_FREEZE` (set in the docs pin commit after the workload
+freeze lands).
 
-Note: on Windows with `core.autocrlf=true`, the working-tree `scripts/bench.py`
-that ran the capture is CRLF-normalized (SHA-256
-`8d837120677a600941206482639a16adc0c4f821fcf5e830993b5cdba5e3cc4c`, 7231
-bytes) and is byte-identical to the git blob aside from line endings. Goose
-sources above are LF in both tree and blob.
-
-The raw sample tables below are from the official capture
-(`python scripts/bench.py --warmup 1 --samples 7`) against those hashed
-sources. A later confirmation rerun may show different wall times; checksums
-must still match.
-
-Reproduce (must match the hashes above for a like-for-like rerun):
+Reproduce:
 
 ```sh
 python scripts/bench.py --warmup 1 --samples 7
@@ -52,30 +35,26 @@ python scripts/bench.py --warmup 1 --samples 7
 - Timing boundary: `steady_seconds` from Goose `clock()` around the timed loop
   only; process startup and one warmup run are excluded from recorded samples
 - Correctness: each sample must print the expected checksum; the runner fails
-  otherwise. Expected totals are also asserted inside each workload against an
-  independent precomputed table
+  otherwise. Expected totals are computed independently of `honkmqtt::publish` /
+  timed encode calls before the timed loop
 - Samples: serialized; warmup discarded; seven recorded samples per workload
-- Narrative files (`README.md`, `ROADMAP.md`, this note) may change after the
-  timed run without invalidating the sample table, provided the four hashed
-  sources above remain unchanged
 
 ## Anti-elision
 
-Constant single-packet benches can be folded away by an optimizing compiler.
-These workloads defend against that:
-
-- **Runtime-varying inputs:** each iteration selects a case by loop index,
-  copies bytes into a mutable buffer, then parses/encodes that buffer
-- **Independent expected outputs:** fields (or match polarity) are checked
-  against tables computed outside the timed checksum fold; wrong results abort
-- **Live checksum:** timed path accumulates parsed/encoded values plus a
-  runtime buffer byte so results cannot be discarded
-- **Generated code inspection:** `goose -O2 -o …c` retains
-  `honkmqtt_publish_g8` calls for both the probe and timed loops; clang `-O2`
-  assembly of that C still contains `callq honkmqtt_publish_g8` in the timed
-  loop. Combined workload C retains `honkmqtt_encode_g8` /
-  `honkmqtt_frame_g8` / `honkmqtt_matches_g8` uses in the timed loop (encode
-  and frame are `GS_INLINE` at the Goose C level)
+- **Runtime-dependent packet bytes:** each iteration copies a case template then
+  writes loop-index-derived values into payload / packet-id-low / topic bytes
+  (`mutate_runtime` / `mutate_body` / `mutate_match_topic`). Double-XOR no-op
+  salts were removed after review
+- **Independent expected outputs:** checksum expectations are computed in a
+  separate pre-timed path that does not call the timed `publish`/`encode` APIs;
+  the timed loop aborts if parsed/encoded fields disagree
+- **Argv:** `tests/benchmark.goose` rejects legacy body/filter/topic arguments so
+  callers cannot mistake multi-case timings for a requested single workload
+- **Final optimized assembly (clang `-O2` of Goose `-O2` C):**
+  - `publish_parse` timed loop stores runtime bytes (e.g. `movb %r12b, …(%rbp)`)
+    then `callq honkmqtt_publish_g8`
+  - `encode_frame_match` timed loop mutates body bytes then inlines encode/frame
+    work and `callq honkmqtt_matches_g8`
 
 ## Machine and toolchain
 
@@ -94,53 +73,48 @@ These workloads defend against that:
 ## Workload: `encode_frame_match`
 
 - Source: `tests/benchmark.goose`
-- Cases (3), copied into mutable buffers each iteration: bodies
-  `sensor reading` / `temp` / `humidity-sample`; filters
-  `sensors/+/temperature` / `sensors/#` / `sensors/+/humidity`; matching and
-  non-matching topics per case
-- Iterations: 1_000_000 encode+frame pairs with alternating match/miss checks
-- Expected checksum: `118833334`
+- Cases (3) with per-iteration body and match-topic mutations
+- Iterations: 1_000_000
+- Expected checksum: `138498139`
 
 Raw `steady_seconds` after warmup:
 
 | Sample | steady_seconds | clock_res_ns |
 | --- | --- | --- |
-| 1 | 0.047529500 | 100 |
-| 2 | 0.047468000 | 100 |
-| 3 | 0.049069900 | 100 |
-| 4 | 0.047465300 | 100 |
-| 5 | 0.046175900 | 100 |
-| 6 | 0.047141700 | 100 |
-| 7 | 0.048391800 | 100 |
+| 1 | 0.051043100 | 100 |
+| 2 | 0.050569700 | 100 |
+| 3 | 0.047492600 | 100 |
+| 4 | 0.049576500 | 100 |
+| 5 | 0.045816600 | 100 |
+| 6 | 0.060247700 | 100 |
+| 7 | 0.049535500 | 100 |
 
-Summary: n=7 min=0.046175900 median=0.047468000 max=0.049069900 mean=0.047606014
+Summary: n=7 min=0.045816600 median=0.049576500 max=0.060247700 mean=0.050611671
 
-Raw sample variation (max − min): 0.002894000 s (~6.1% of mean)
+Raw sample variation (max − min): 0.014431100 s (~28.5% of mean)
 
 ## Workload: `publish_parse`
 
 - Source: `tests/bench_publish.goose`
-- Cases (4), copied each iteration: QoS0 `a/b` + 3-byte payload; QoS1 topic
-  `x` id `0x1234`; QoS2+RETAIN+DUP topic `x` id `0xffff`; QoS0 topic `yz`
+- Cases (4) with per-iteration payload / id-low / topic mutations
 - Iterations: 1_000_000
-- Expected checksum: `17700500000` (field sum per case + `buf[payload-1]` term,
-  validated against an independent expectation table)
+- Expected checksum: `17675999524`
 
 Raw `steady_seconds` after warmup:
 
 | Sample | steady_seconds | clock_res_ns |
 | --- | --- | --- |
-| 1 | 0.008658000 | 100 |
-| 2 | 0.009013400 | 100 |
-| 3 | 0.009085600 | 100 |
-| 4 | 0.008634300 | 100 |
-| 5 | 0.009174400 | 100 |
-| 6 | 0.008642400 | 100 |
-| 7 | 0.008703400 | 100 |
+| 1 | 0.008334000 | 100 |
+| 2 | 0.009048200 | 100 |
+| 3 | 0.008802400 | 100 |
+| 4 | 0.008905800 | 100 |
+| 5 | 0.008402500 | 100 |
+| 6 | 0.008385800 | 100 |
+| 7 | 0.008336800 | 100 |
 
-Summary: n=7 min=0.008634300 median=0.008703400 max=0.009174400 mean=0.008844500
+Summary: n=7 min=0.008334000 median=0.008402500 max=0.009048200 mean=0.008602214
 
-Raw sample variation (max − min): 0.000540100 s (~6.1% of mean)
+Raw sample variation (max − min): 0.000714200 s (~8.3% of mean)
 
 ## Limitations
 

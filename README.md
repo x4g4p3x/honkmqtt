@@ -121,8 +121,8 @@ discard warmup, and record at least seven serialized steady-state samples for:
 
 | Workload | Source | What it measures | Expected checksum |
 | --- | --- | --- | --- |
-| `encode_frame_match` | `tests/benchmark.goose` | 1e6 encode+frame + matches over 3 runtime-copied cases | `118833334` |
-| `publish_parse` | `tests/bench_publish.goose` | 1e6 `publish` parses over 4 runtime-copied PUBLISH cases | `17700500000` |
+| `encode_frame_match` | `tests/benchmark.goose` | 1e6 encode+frame + matches over 3 runtime-mutated cases | `138498139` |
+| `publish_parse` | `tests/bench_publish.goose` | 1e6 `publish` parses over 4 runtime-mutated PUBLISH cases | `17675999524` |
 
 Timing boundary: each program prints `steady_seconds` from Goose `clock()`
 around the timed loop only (process startup excluded), plus `clock_res_ns`.
