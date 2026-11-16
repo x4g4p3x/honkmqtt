@@ -52,6 +52,9 @@ def write_fake_goose(directory: Path, mode: str) -> Path:
                     if MODE == "unrecognized":
                         print("cmake: not found on PATH")
                         return 0
+                    if MODE == "empty-cc":
+                        print("C compiler:")
+                        return 0
                     if MODE == "available":
                         print("C compiler:   clang 1.0, found on PATH")
                         return 0
@@ -112,6 +115,10 @@ def test_toolchain_classification(entry: types.ModuleType) -> None:
         if kind != "error" or "unrecognized" not in detail.lower():
             fail(f"unrecognized output should be error, got {kind}: {detail}")
 
+        kind, detail = entry.probe_c_compiler(str(write_fake_goose(base / "empty", "empty-cc")))
+        if kind != "error" or "unrecognized" not in detail.lower():
+            fail(f"empty C compiler detail should be error, got {kind}: {detail}")
+
         kind, detail = entry.probe_c_compiler(str(write_fake_goose(base / "ok", "available")))
         if kind != "available" or "clang" not in detail.lower():
             fail(f"available compiler expected, got {kind}: {detail}")
@@ -134,6 +141,11 @@ def test_entry_fail_vs_skip() -> None:
         if code == 0:
             fail("unrecognized toolchain output must not succeed as a native skip")
         expect_contains(out, "unrecognized", "unrecognized")
+
+        code, out = run_entry(write_fake_goose(base / "empty", "empty-cc"), "--native")
+        if code == 0:
+            fail("empty C compiler detail must not succeed as a native skip")
+        expect_contains(out, "unrecognized", "empty-cc")
 
         goose = write_fake_goose(base / "missing", "no-cc")
         code, out = run_entry(goose, "--native")

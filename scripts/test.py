@@ -10,8 +10,8 @@ skipped or unavailable. Set GOOSE to override the Goose executable.
 Native mode removes each target's pre-existing build product before building.
 If that executable cannot be removed, native work aborts for the target so a
 stale binary cannot be executed. Toolchain launch failures, nonzero toolchain
-exits, and unrecognized toolchain output are errors; only an explicit
-"C compiler: not found" response may skip native builds.
+exits, empty C compiler detail, and unrecognized toolchain output are errors;
+only an explicit "C compiler: not found" response may skip native builds.
 """
 
 from __future__ import annotations
@@ -94,7 +94,8 @@ def probe_c_compiler(goose: str) -> tuple[ToolchainKind, str]:
     Returns (kind, detail):
     - available: detail is the C compiler summary line
     - missing: Goose explicitly reported no C compiler
-    - error: launch failure, nonzero exit, or unrecognized output
+    - error: launch failure, nonzero exit, empty C compiler detail, or
+      unrecognized output
     """
     try:
         result = subprocess.run(
@@ -120,7 +121,9 @@ def probe_c_compiler(goose: str) -> tuple[ToolchainKind, str]:
             continue
         detail = stripped.split(":", 1)[1].strip()
         detail_lower = detail.lower()
-        if not detail or detail_lower.startswith("not found"):
+        if not detail:
+            return "error", f"FAILED: unrecognized `goose toolchain` output: {stripped}"
+        if detail_lower.startswith("not found"):
             return "missing", stripped
         return "available", stripped
 
