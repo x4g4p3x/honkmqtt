@@ -13,10 +13,13 @@ and scheduling. A complete network client, broker, TLS, persistence, and
 MQTT 5 are not part of the initial codec scope. Whether to build a client or
 MQTT 5 support is a later product decision, not an implicit commitment.
 
-As of the `d816572` baseline, the library has fixed-header parsing, bounded
-frame detection, opaque-body encoding, PUBLISH parsing, UTF-8/topic validation,
-and topic-filter matching. The deterministic tests cover selected boundaries;
-there is no measured Goose source-coverage percentage, fuzz campaign, broker
+As of the test-entry / CI slice on top of `919f6ed`, the library has
+fixed-header parsing, bounded frame detection, opaque-body encoding, PUBLISH
+parsing, UTF-8/topic validation, and topic-filter matching. `scripts/test.py`
+is the repeatable local test entry point; `.github/workflows/ci.yml` pins Goose
+v2026.4 and runs lint plus interpreter and native tests on `ubuntu-24.04` and
+`windows-2022` (x64). The deterministic tests cover selected boundaries; there
+is no measured Goose source-coverage percentage, fuzz campaign, broker
 interoperability result, or MQTT conformance certification. The PUBLISH
 parser does not implement QoS or session state. The existing benchmark covers
 one narrow combined framing/matching workload, not the complete library.
@@ -25,9 +28,14 @@ one narrow combined framing/matching workload, not the complete library.
 
 ### M0 — Reliable foundation (in progress)
 
-- Provide a single repeatable test entry point and CI initially targeting
+- [x] Provide a single repeatable test entry point and CI initially targeting
   Windows x64 and Linux x64 with Goose v2026.4 pinned; document C compiler
   versions and supported versions. Add other targets only with test evidence.
+  Evidence: `scripts/test.py`; `.github/workflows/ci.yml`; README supported
+  target table. Local Windows x64 run with Goose v2026.4 passed interpreter
+  normal/debug and native build/run (`goose toolchain`: clang 14.0.6). Remote
+  GitHub Actions evidence is pending until this workflow is pushed; Windows CI
+  native expects MSVC via `msvc-dev-cmd`.
 - Maintain behavioral tests for every public operation and failure status.
   Add a source-mapped coverage mechanism if Goose tooling permits it; report
   its actual scope and limitations instead of inferring a percentage.

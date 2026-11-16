@@ -1,4 +1,4 @@
-name: Lint
+name: CI
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   goose:
-    name: Goose lint (${{ matrix.os }})
+    name: Goose (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -39,3 +39,10 @@ jobs:
           $executable.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Check Goose formatting and diagnostics
         run: python scripts/lint.py
+      - name: Run interpreter tests
+        run: python scripts/test.py
+      - name: Enable MSVC for native builds
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa4391cef39e7e408c7e3348bd9b44e # v1.13.0
+      - name: Run native builds and tests
+        run: python scripts/test.py --native --require-native

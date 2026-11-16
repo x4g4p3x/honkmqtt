@@ -47,24 +47,40 @@ fn main() {
 From a project elsewhere, the import can use `"x4g4p3x/honkmqtt@<commit>"`. See [Goose package documentation](https://aardappel.github.io/goose/docs/packages.html) for pinned Git imports and updates.
 
 ```sh
-goose tests/test.goose
-goose tests/test.goose --debug
-goose tests/publish.goose
-goose tests/publish.goose --debug
-goose tests/coverage.goose
-goose tests/coverage.goose --debug
-goose build tests/test.goose
-goose build tests/publish.goose
-goose build tests/coverage.goose
+python scripts/lint.py
+python scripts/test.py
+python scripts/test.py --native --require-native
 ```
+
+`scripts/test.py` is the single repeatable test entry point. It runs
+`tests/test.goose`, `tests/publish.goose`, and `tests/coverage.goose` in the
+Goose in-process runner, both normally and with `--debug`. With `--native` it
+also `goose build`s and executes those programs when `goose toolchain` reports
+a C compiler; `--require-native` fails if that path is skipped. Individual
+`goose tests/...` and `goose build tests/...` commands remain valid.
 
 Run `python scripts/lint.py` to check Goose formatting and compiler
 diagnostics across the repository. It requires Python 3 and Goose on PATH;
 set `GOOSE` to the executable path if needed. Fix formatting with
-`goose format .`. The CI workflow is configured to run these checks with Goose
-v2026.4 on Linux and Windows.
+`goose format .`.
 
-Goose's in-process runner needs no separate C compiler on Windows. Native `goose build` needs a supported C compiler. The tests are deterministic software checks, not an interoperability or conformance suite. The protocol reference is the [OASIS MQTT 3.1.1 standard](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html).
+### Supported CI targets
+
+GitHub Actions CI (`.github/workflows/ci.yml`) pins Goose **v2026.4** and runs
+lint, interpreter tests, and native build/run on:
+
+| OS image | Arch | Goose | Native C compiler expectation |
+| --- | --- | --- | --- |
+| `ubuntu-24.04` | x64 | v2026.4 | system `gcc` / `cc` via `goose toolchain` |
+| `windows-2022` | x64 | v2026.4 | MSVC through the `msvc-dev-cmd` environment |
+
+Other hosts are unsupported until they have the same automated evidence. Local
+native builds may use any C compiler Goose accepts (`msvc`, `clang-cl`,
+`clang`, `gcc`, or `cc`, or `GOOSE_CC` / `--cc`). Record the exact
+`goose toolchain` output when comparing results. Goose's in-process runner
+needs no separate C compiler. The tests are deterministic software checks, not
+an interoperability or conformance suite. The protocol reference is the
+[OASIS MQTT 3.1.1 standard](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html).
 
 For a small repeatable performance workload, build `tests/benchmark.goose` in
 release mode and time the resulting executable repeatedly, for example:
