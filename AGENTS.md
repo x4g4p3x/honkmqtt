@@ -10,10 +10,13 @@ Project-specific Codex workflows are in `.agents/skills/`.
 
 - Run `python scripts/lint.py` with Goose on PATH (or set `GOOSE` to its
   executable). It checks Goose formatting and fails on compiler diagnostics.
-- Use Goose v2026.4 or newer. Run `goose tests/test.goose`,
-  `goose tests/publish.goose`, and `goose tests/coverage.goose`, including each
-  with `--debug`; build and run them natively when a supported C compiler is
-  available.
+- Use Goose v2026.4 or newer. Prefer the single entry point
+  `python scripts/test.py` (normal and `--debug` interpreter runs for
+  `tests/test.goose`, `tests/publish.goose`, and `tests/coverage.goose`). Add
+  `--native` to build and run those programs when `goose toolchain` reports a
+  C compiler, and `--require-native` when native success is mandatory.
+  Run `python scripts/test_selftest.py` after changing the entry point.
+  Individual `goose tests/...` commands remain valid.
 - Test malformed and truncated input, boundary lengths, unchanged output on
   errors, and topic/UTF-8 edge cases when touching the relevant code. Incomplete
   frames must consume zero bytes. Do not claim validation of other packet bodies,
