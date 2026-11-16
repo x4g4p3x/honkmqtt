@@ -71,8 +71,8 @@ lint, interpreter tests, and native build/run on:
 
 | OS image | Arch | Goose | Native C compiler expectation |
 | --- | --- | --- | --- |
-| `ubuntu-24.04` | x64 | v2026.4 | `gcc` installed in CI; selected via `goose toolchain` |
-| `windows-2022` | x64 | v2026.4 | MSVC via `msvc-dev-cmd`, with `GOOSE_CC=msvc` |
+| `ubuntu-24.04` | x64 | v2026.4 | `gcc` installed in the Linux CI job; selected via `goose toolchain` |
+| `windows-2022` | x64 | v2026.4 | MSVC via `msvc-dev-cmd` in the Windows CI job, with `GOOSE_CC=msvc` |
 
 Other hosts are unsupported until they have the same automated evidence. Local
 native builds may use any C compiler Goose accepts (`msvc`, `clang-cl`,
