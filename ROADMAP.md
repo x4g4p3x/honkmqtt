@@ -13,18 +13,20 @@ and scheduling. A complete network client, broker, TLS, persistence, and
 MQTT 5 are not part of the initial codec scope. Whether to build a client or
 MQTT 5 support is a later product decision, not an implicit commitment.
 
-As of the behavioral-matrix slice on top of merged `0f17735`, the library has
+As of the fuzz-smoke slice on top of merged `677fe7e`, the library has
 fixed-header parsing, bounded frame detection, opaque-body encoding, PUBLISH
 parsing, UTF-8/topic validation, and topic-filter matching. `scripts/test.py`
 is the repeatable local test entry point; `.github/workflows/ci.yml` pins Goose
 v2026.4 and runs lint plus interpreter and native tests on `ubuntu-24.04` and
 `windows-2022` (x64). `tests/api.goose` states positive and failure-status
-cases for each public operation. Goose v2026.4 has no source-mapped coverage
-mechanism in its documented CLI, so there is no measured coverage percentage.
-There is still no fuzz campaign, broker interoperability result, or MQTT
-conformance certification. The PUBLISH parser does not implement QoS or
-session state. The existing benchmark covers one narrow combined
-framing/matching workload, not the complete library.
+cases for each public operation. `tests/fuzz.goose` is a reproducible
+randomized smoke campaign (default seed `20261116`, ≥10000 cases) with saved
+regressions and deterministic generated boundaries. Goose v2026.4 has no
+source-mapped coverage mechanism in its documented CLI, so there is no
+measured coverage percentage. There is still no broker interoperability
+result or MQTT conformance certification. The PUBLISH parser does not
+implement QoS or session state. The existing benchmark covers one narrow
+combined framing/matching workload, not the complete library.
 
 ## Milestones
 
@@ -53,11 +55,18 @@ framing/matching workload, not the complete library.
   `goose help --man`; `tests/coverage.goose` is combinatorial behavior only.
   Not claimed: line/branch percentage; `encode` with `body.len > MAX_REMAINING`
   (impractical in-process allocation in this suite).
-- Add deterministic generated and malformed-input tests for lengths, flags,
+- [x] Add deterministic generated and malformed-input tests for lengths, flags,
   truncation, UTF-8 and wildcard boundaries. Establish a reproducible fuzzing
   or equivalent randomized-testing workflow with saved regressions. The initial
   reproducible run must execute at least 10,000 bounded cases with recorded seeds;
   this is a minimum smoke campaign, not a safety guarantee.
+  Evidence: `tests/fuzz.goose` (saved regressions + deterministic generated
+  cases + `std.rng` campaign); default seed `20261116` / `10000` cases recorded
+  in README; wired into `scripts/test.py`. Local Windows run printed
+  `Fuzz smoke passed: seed=20261116 cases=10000`. Limitations: bounded
+  48-byte random inputs; not AFL/libFuzzer; not a memory-safety or
+  conformance claim; interesting failures should be added to
+  `saved_regressions`.
 - Record representative optimized-build baselines, including PUBLISH parsing,
   with inputs, commands, machine, toolchain, timing boundaries and at least
   seven repeated samples after warmup per workload.
