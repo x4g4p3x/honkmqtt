@@ -30,6 +30,8 @@ jobs:
           $executable.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Check Goose formatting and diagnostics
         run: python scripts/lint.py
+      - name: Run test-entry self-tests
+        run: python scripts/test_selftest.py
       - name: Run interpreter tests
         run: python scripts/test.py
       - name: Install gcc for native builds
@@ -58,6 +60,8 @@ jobs:
           $executable.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
       - name: Check Goose formatting and diagnostics
         run: python scripts/lint.py
+      - name: Run test-entry self-tests
+        run: python scripts/test_selftest.py
       - name: Run interpreter tests
         run: python scripts/test.py
       - name: Enable MSVC for native builds

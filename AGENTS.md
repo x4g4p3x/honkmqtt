@@ -15,6 +15,7 @@ Project-specific Codex workflows are in `.agents/skills/`.
   `tests/test.goose`, `tests/publish.goose`, and `tests/coverage.goose`). Add
   `--native` to build and run those programs when `goose toolchain` reports a
   C compiler, and `--require-native` when native success is mandatory.
+  Run `python scripts/test_selftest.py` after changing the entry point.
   Individual `goose tests/...` commands remain valid.
 - Test malformed and truncated input, boundary lengths, unchanged output on
   errors, and topic/UTF-8 edge cases when touching the relevant code. Incomplete

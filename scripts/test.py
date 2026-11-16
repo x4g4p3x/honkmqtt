@@ -7,8 +7,11 @@ with --debug. Pass --native to also goose build and execute each program when
 a C compiler is available; pass --require-native to fail if native work is
 skipped or unavailable. Set GOOSE to override the Goose executable.
 
-Native mode removes any pre-existing build product for a target before
-building, so a successful no-op or failed build cannot re-run a stale binary.
+Native mode removes each target's pre-existing build product before building.
+If that executable cannot be removed, native work aborts for the target so a
+stale binary cannot be executed. Toolchain launch failures, nonzero toolchain
+exits, and unrecognized toolchain output are errors; only an explicit
+"C compiler: not found" response may skip native builds.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+from typing import Literal
 
 ROOT = Path(__file__).resolve().parent.parent
 TESTS = (
@@ -27,6 +31,8 @@ TESTS = (
     Path("tests/coverage.goose"),
 )
 SIDE_SUFFIXES = (".obj", ".o", ".pdb", ".ilk")
+
+ToolchainKind = Literal["available", "missing", "error"]
 
 
 def run(command: list[str], *, label: str) -> bool:
@@ -57,17 +63,39 @@ def artifact_paths(executable: Path) -> list[Path]:
     return paths
 
 
-def remove_artifacts(executable: Path) -> None:
+def clear_build_product(executable: Path) -> bool:
+    """Remove build products for executable.
+
+    Return True when the executable itself could not be cleared while present,
+    or when an unlink failed for a related artifact before a native build.
+    Missing paths are fine.
+    """
+    failed = False
     for path in artifact_paths(executable):
+        if not path.is_file():
+            continue
         try:
-            if path.is_file():
-                path.unlink()
+            path.unlink()
         except OSError as error:
-            print(f"warning: could not remove {path}: {error}", file=sys.stderr)
+            print(f"FAILED: could not remove {path}: {error}", file=sys.stderr)
+            failed = True
+    if executable.is_file():
+        print(
+            f"FAILED: executable still present after removal attempt: {executable}",
+            file=sys.stderr,
+        )
+        failed = True
+    return failed
 
 
-def toolchain_c_compiler(goose: str) -> str | None:
-    """Return the C compiler summary line, or None if Goose reports none."""
+def probe_c_compiler(goose: str) -> tuple[ToolchainKind, str]:
+    """Classify `goose toolchain` C compiler status.
+
+    Returns (kind, detail):
+    - available: detail is the C compiler summary line
+    - missing: Goose explicitly reported no C compiler
+    - error: launch failure, nonzero exit, or unrecognized output
+    """
     try:
         result = subprocess.run(
             [goose, "toolchain"],
@@ -78,22 +106,26 @@ def toolchain_c_compiler(goose: str) -> str | None:
             errors="replace",
         )
     except OSError as error:
-        print(f"FAILED: goose toolchain ({error})", file=sys.stderr)
-        return None
+        return "error", f"FAILED: could not launch `goose toolchain` ({error})"
+
     text = (result.stdout or "") + (result.stderr or "")
     if result.returncode != 0:
-        print(text, end="", file=sys.stderr)
-        return None
+        detail = text.strip() or f"exit {result.returncode}"
+        return "error", f"FAILED: `goose toolchain` exited {result.returncode}: {detail}"
+
     for line in text.splitlines():
         stripped = line.strip()
         lowered = stripped.lower()
         if not lowered.startswith("c compiler:"):
             continue
-        detail = stripped.split(":", 1)[1].strip().lower()
-        if not detail or detail.startswith("not found"):
-            return None
-        return stripped
-    return None
+        detail = stripped.split(":", 1)[1].strip()
+        detail_lower = detail.lower()
+        if not detail or detail_lower.startswith("not found"):
+            return "missing", stripped
+        return "available", stripped
+
+    snippet = text.strip() or "(empty toolchain output)"
+    return "error", f"FAILED: unrecognized `goose toolchain` output: {snippet}"
 
 
 def run_interpreter(goose: str) -> bool:
@@ -106,22 +138,31 @@ def run_interpreter(goose: str) -> bool:
 
 
 def run_native(goose: str, *, require: bool) -> bool:
-    compiler = toolchain_c_compiler(goose)
-    if compiler is None:
-        message = "No C compiler reported by `goose toolchain`; skipping native builds."
+    kind, detail = probe_c_compiler(goose)
+    if kind == "error":
+        print(detail, file=sys.stderr)
+        return True
+    if kind == "missing":
+        message = f"No C compiler reported by `goose toolchain` ({detail}); skipping native builds."
         if require:
             print(message, file=sys.stderr)
             return True
         print(message)
         return False
 
-    print(f"Native builds using {compiler}", flush=True)
+    print(f"Native builds using {detail}", flush=True)
     failed = False
     for source in TESTS:
         path = str(source.as_posix())
         exe = executable_for(ROOT / source)
         relative_exe = exe.relative_to(ROOT).as_posix()
-        remove_artifacts(exe)
+        if clear_build_product(exe):
+            print(
+                f"FAILED: aborting native build for {path}; stale {relative_exe} may remain",
+                file=sys.stderr,
+            )
+            failed = True
+            continue
         try:
             if run([goose, "build", path], label=f"build {path}"):
                 failed = True
@@ -136,7 +177,13 @@ def run_native(goose: str, *, require: bool) -> bool:
             if run([str(exe)], label=f"native {relative_exe}"):
                 failed = True
         finally:
-            remove_artifacts(exe)
+            # Best-effort cleanup after the run; a failure here cannot revive a
+            # pre-build stale binary we already refused to execute.
+            if clear_build_product(exe):
+                print(
+                    f"warning: could not clean native artifacts for {relative_exe}",
+                    file=sys.stderr,
+                )
     return failed
 
 

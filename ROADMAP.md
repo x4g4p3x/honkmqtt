@@ -35,9 +35,12 @@ one narrow combined framing/matching workload, not the complete library.
   target table. Local Windows x64 run with Goose v2026.4 passed interpreter
   normal/debug and native build/run (`goose toolchain`: clang 14.0.6). Stale
   native-output and fail-propagation paths were exercised with a fake Goose.
-  Hosted CI on PR #1 (`d5c421e`) passed Goose lint, interpreter, and native
-  tests on `ubuntu-24.04` (gcc) and `windows-2022` (MSVC via `msvc-dev-cmd` +
-  `GOOSE_CC=msvc` in a Windows-only job).
+  Hosted CI on PR #1 passed Goose lint, interpreter, and native tests on
+  `ubuntu-24.04` (gcc) and `windows-2022` (MSVC via `msvc-dev-cmd` +
+  `GOOSE_CC=msvc` in a Windows-only job). `scripts/test.py` treats toolchain
+  launch/nonzero/unrecognized output as errors (not a successful skip) and
+  aborts a native target when the prior executable cannot be removed;
+  `scripts/test_selftest.py` covers those contracts.
 - Maintain behavioral tests for every public operation and failure status.
   Add a source-mapped coverage mechanism if Goose tooling permits it; report
   its actual scope and limitations instead of inferring a percentage.
