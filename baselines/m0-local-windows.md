@@ -15,25 +15,27 @@ bytes** (unchanged through the commit that freezes them on this branch).
 | --- | --- |
 | Branch | `ao/m0-roadmap/m0-perf-baselines` |
 | Pre-hardening baseline commit | `39fbd8f4a65a66fda06125e7accc864484c5a256` |
+| Freeze commit (hardened workloads + hash table) | `cff9914501fa2f4bdc11242d65387350364d459c` |
 | Measurement identity | content hashes below (not the pre-hardening commit alone) |
 
-**SHA-256 of measured library and benchmark sources** (file bytes that built and
-timed the samples below; re-hash working tree or `git show <freeze>:path`):
+**SHA-256 of git blob bytes** (`git show cff9914501fa2f4bdc11242d65387350364d459c:path`):
 
 | Path | SHA-256 | Size |
 | --- | --- | --- |
 | `honkmqtt.goose` | `fd26625e9203d50090387fce1ce3f2d20a82a016c18934aadeb3dea3a89708f6` | 7033 |
 | `tests/bench_publish.goose` | `a3f40d46526ad5f23c6d276c5f989ee205eab02712c71b74ab1c1255a57c59ee` | 5141 |
 | `tests/benchmark.goose` | `9ff1ec9d0d4fdd0a53311185291e46c4e345488fea11eb6bc8d0803bdf0c2bcd` | 4218 |
-| `scripts/bench.py` | `8d837120677a600941206482639a16adc0c4f821fcf5e830993b5cdba5e3cc4c` | 7231 |
+| `scripts/bench.py` | `13c9d278decf647f3375a19e92e384674c0fac0dcd85e68d768ecea431bd1018` | 7042 |
 
 Manifest SHA-256 (of the four `hash  path` lines above, LF-separated, paths as
 in the table):
-`6c95ec565b0cd5922e77138c5f5aa06494e3eee5e478aab40a906df2ef006028`
+`1e7329fc2d5a2e58c1cf39d7dae4b93c9162ea86681f96018caffbb69458f9cd`
 
-Freeze commit for these bytes: see git history on this branch for the commit
-that introduces the hardened workloads and this hash table (`git log -1 --
-baselines/m0-local-windows.md` after that lands).
+Note: on Windows with `core.autocrlf=true`, the working-tree `scripts/bench.py`
+that ran the capture is CRLF-normalized (SHA-256
+`8d837120677a600941206482639a16adc0c4f821fcf5e830993b5cdba5e3cc4c`, 7231
+bytes) and is byte-identical to the git blob aside from line endings. Goose
+sources above are LF in both tree and blob.
 
 The raw sample tables below are from the official capture
 (`python scripts/bench.py --warmup 1 --samples 7`) against those hashed

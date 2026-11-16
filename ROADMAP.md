@@ -78,10 +78,10 @@ does not implement QoS or session state.
   `scripts/bench.py`, and `baselines/m0-local-windows.md` (Windows x64, Goose
   v2026.4 / clang 14.0.6, warmup 1 + 7 serialized `steady_seconds` samples,
   checksum-verified against independent expectations; `clock_res_ns=100`
-  reported with raw sample variation).   Capture used working-tree bytes atop `39fbd8f` before the hardening freeze
-  commit; measured library/bench sources are pinned by SHA-256 in that baseline
-  note (manifest
-  `6c95ec565b0cd5922e77138c5f5aa06494e3eee5e478aab40a906df2ef006028`).
+  reported with raw sample variation).   Capture used working-tree bytes atop `39fbd8f` before freeze
+  `cff9914501fa2f4bdc11242d65387350364d459c`; measured library/bench sources are
+  pinned by git-blob SHA-256 in that baseline note (manifest
+  `1e7329fc2d5a2e58c1cf39d7dae4b93c9162ea86681f96018caffbb69458f9cd`).
   Anti-elision: per-iteration mutable case buffers; Goose `-O2` C and clang
   `-O2` asm retain `honkmqtt_publish_g8` in the timed loop. Timing boundary:
   loop-only `clock()`. Limitations: local Windows capture only; short
