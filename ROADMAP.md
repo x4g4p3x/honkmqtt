@@ -33,9 +33,11 @@ one narrow combined framing/matching workload, not the complete library.
   versions and supported versions. Add other targets only with test evidence.
   Evidence: `scripts/test.py`; `.github/workflows/ci.yml`; README supported
   target table. Local Windows x64 run with Goose v2026.4 passed interpreter
-  normal/debug and native build/run (`goose toolchain`: clang 14.0.6). Remote
-  GitHub Actions evidence is pending until this workflow is pushed; Windows CI
-  native expects MSVC via `msvc-dev-cmd`.
+  normal/debug and native build/run (`goose toolchain`: clang 14.0.6). Stale
+  native-output and fail-propagation paths were exercised with a fake Goose.
+  Remote GitHub Actions / Linux runner evidence is pending until this workflow
+  is pushed; Windows CI native expects MSVC via `msvc-dev-cmd` and
+  `GOOSE_CC=msvc`, Linux CI installs `gcc`.
 - Maintain behavioral tests for every public operation and failure status.
   Add a source-mapped coverage mechanism if Goose tooling permits it; report
   its actual scope and limitations instead of inferring a percentage.

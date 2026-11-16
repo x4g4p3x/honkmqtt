@@ -71,13 +71,15 @@ lint, interpreter tests, and native build/run on:
 
 | OS image | Arch | Goose | Native C compiler expectation |
 | --- | --- | --- | --- |
-| `ubuntu-24.04` | x64 | v2026.4 | system `gcc` / `cc` via `goose toolchain` |
-| `windows-2022` | x64 | v2026.4 | MSVC through the `msvc-dev-cmd` environment |
+| `ubuntu-24.04` | x64 | v2026.4 | `gcc` installed in CI; selected via `goose toolchain` |
+| `windows-2022` | x64 | v2026.4 | MSVC via `msvc-dev-cmd`, with `GOOSE_CC=msvc` |
 
 Other hosts are unsupported until they have the same automated evidence. Local
 native builds may use any C compiler Goose accepts (`msvc`, `clang-cl`,
 `clang`, `gcc`, or `cc`, or `GOOSE_CC` / `--cc`). Record the exact
-`goose toolchain` output when comparing results. Goose's in-process runner
+`goose toolchain` output when comparing results. `scripts/test.py --native`
+deletes each target's previous build product before building so a stale
+executable cannot satisfy a no-op or failed build. Goose's in-process runner
 needs no separate C compiler. The tests are deterministic software checks, not
 an interoperability or conformance suite. The protocol reference is the
 [OASIS MQTT 3.1.1 standard](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html).

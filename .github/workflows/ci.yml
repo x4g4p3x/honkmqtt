@@ -41,8 +41,17 @@ jobs:
         run: python scripts/lint.py
       - name: Run interpreter tests
         run: python scripts/test.py
+      - name: Install gcc for native builds
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends gcc
       - name: Enable MSVC for native builds
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa4391cef39e7e408c7e3348bd9b44e # v1.13.0
-      - name: Run native builds and tests
+      - name: Run native builds and tests (Linux)
+        if: runner.os == 'Linux'
+        run: python scripts/test.py --native --require-native
+      - name: Run native builds and tests (Windows)
+        if: runner.os == 'Windows'
+        env:
+          GOOSE_CC: msvc
         run: python scripts/test.py --native --require-native
