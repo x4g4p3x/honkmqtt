@@ -53,14 +53,23 @@ python scripts/test.py --native --require-native
 ```
 
 `scripts/test.py` is the single repeatable test entry point. It runs
-`tests/test.goose`, `tests/publish.goose`, and `tests/coverage.goose` in the
-Goose in-process runner, both normally and with `--debug`. With `--native` it
-also `goose build`s and executes those programs when `goose toolchain` reports
-a C compiler; `--require-native` fails if that path is skipped. Toolchain
-launch failures, nonzero exits, and unrecognized output are errors (not a
-successful skip). Native mode aborts a target if the previous executable cannot
-be removed. Run `python scripts/test_selftest.py` for those regression checks.
-Individual `goose tests/...` and `goose build tests/...` commands remain valid.
+`tests/test.goose`, `tests/publish.goose`, `tests/coverage.goose`, and
+`tests/api.goose` in the Goose in-process runner, both normally and with
+`--debug`. With `--native` it also `goose build`s and executes those programs
+when `goose toolchain` reports a C compiler; `--require-native` fails if that
+path is skipped. Toolchain launch failures, nonzero exits, and unrecognized
+output are errors (not a successful skip). Native mode aborts a target if the
+previous executable cannot be removed. Run `python scripts/test_selftest.py`
+for those regression checks. Individual `goose tests/...` and
+`goose build tests/...` commands remain valid.
+
+`tests/api.goose` is the behavioral matrix for every public operation and its
+documented failure statuses (`header`/`frame`/`encode`/`publish` status codes
+and the boolean UTF-8/topic/filter/`matches` contracts), including unchanged
+output on `encode` failure. `tests/coverage.goose` remains a combinatorial
+flags/length exercise; it is **not** measured line coverage. Goose v2026.4
+exposes no source-mapped coverage or instrumentation command in `goose help` /
+`goose help --man`, so this repository does not report a coverage percentage.
 
 Run `python scripts/lint.py` to check Goose formatting and compiler
 diagnostics across the repository. It requires Python 3 and Goose on PATH;

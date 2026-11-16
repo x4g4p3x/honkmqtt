@@ -13,16 +13,18 @@ and scheduling. A complete network client, broker, TLS, persistence, and
 MQTT 5 are not part of the initial codec scope. Whether to build a client or
 MQTT 5 support is a later product decision, not an implicit commitment.
 
-As of the test-entry / CI slice on top of `919f6ed`, the library has
+As of the behavioral-matrix slice on top of merged `0f17735`, the library has
 fixed-header parsing, bounded frame detection, opaque-body encoding, PUBLISH
 parsing, UTF-8/topic validation, and topic-filter matching. `scripts/test.py`
 is the repeatable local test entry point; `.github/workflows/ci.yml` pins Goose
 v2026.4 and runs lint plus interpreter and native tests on `ubuntu-24.04` and
-`windows-2022` (x64). The deterministic tests cover selected boundaries; there
-is no measured Goose source-coverage percentage, fuzz campaign, broker
-interoperability result, or MQTT conformance certification. The PUBLISH
-parser does not implement QoS or session state. The existing benchmark covers
-one narrow combined framing/matching workload, not the complete library.
+`windows-2022` (x64). `tests/api.goose` states positive and failure-status
+cases for each public operation. Goose v2026.4 has no source-mapped coverage
+mechanism in its documented CLI, so there is no measured coverage percentage.
+There is still no fuzz campaign, broker interoperability result, or MQTT
+conformance certification. The PUBLISH parser does not implement QoS or
+session state. The existing benchmark covers one narrow combined
+framing/matching workload, not the complete library.
 
 ## Milestones
 
@@ -41,9 +43,16 @@ one narrow combined framing/matching workload, not the complete library.
   launch/nonzero/unrecognized output as errors (not a successful skip) and
   aborts a native target when the prior executable cannot be removed;
   `scripts/test_selftest.py` covers those contracts.
-- Maintain behavioral tests for every public operation and failure status.
+- [x] Maintain behavioral tests for every public operation and failure status.
   Add a source-mapped coverage mechanism if Goose tooling permits it; report
   its actual scope and limitations instead of inferring a percentage.
+  Evidence: `tests/api.goose` matrix for `header`, `frame`, `encode`,
+  `publish`, `valid_utf8`, `valid_topic`, `valid_filter`, and `matches`,
+  including zeroed outputs / unchanged buffers on failures where applicable.
+  Goose v2026.4: no coverage/instrumentation command found in `goose help` or
+  `goose help --man`; `tests/coverage.goose` is combinatorial behavior only.
+  Not claimed: line/branch percentage; `encode` with `body.len > MAX_REMAINING`
+  (impractical in-process allocation in this suite).
 - Add deterministic generated and malformed-input tests for lengths, flags,
   truncation, UTF-8 and wildcard boundaries. Establish a reproducible fuzzing
   or equivalent randomized-testing workflow with saved regressions. The initial
