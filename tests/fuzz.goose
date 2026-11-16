@@ -71,24 +71,40 @@ fn check_encode(first: u8, body: const u8[:], out: u8[:], fill: u8) {
 }
 
 // Saved regressions: fixed vectors kept after interesting failures or audits.
+// Each case asserts the exact expected status and zeroed outputs so a change
+// from INCOMPLETE to INVALID (or accidental OK) fails this suite.
 fn saved_regressions() {
-    // Truncated two-byte remaining length must not consume.
-    check_header([0x30, 0x80]);
-    check_frame([0x30, 0x80], 128);
-    check_publish([0x30, 0x80], 128);
-    // Non-minimal remaining length is INVALID with zero outs.
-    check_header([0x30, 0x80, 0x00]);
-    check_frame([0x30, 0x80, 0x00], 128);
-    check_publish([0x30, 0x80, 0x00], 128);
-    // Adjacent PINGREQ must not be absorbed into a short PUBLISH parse.
+    // Truncated two-byte remaining length: INCOMPLETE, consume nothing.
+    let h1, p1, b1 = honkmqtt::header([0x30, 0x80]);
+    assert(h1 == honkmqtt::INCOMPLETE && p1 == 0 && b1 == 0);
+    let f1, u1 = honkmqtt::frame([0x30, 0x80], 128);
+    assert(f1 == honkmqtt::INCOMPLETE && u1 == 0);
+    let s1, c1, t1, l1, o1, i1 = honkmqtt::publish([0x30, 0x80], 128);
+    assert(s1 == honkmqtt::INCOMPLETE && c1 == 0 && t1 == 0 && l1 == 0 && o1 == 0 && i1 == 0);
+
+    // Non-minimal remaining length: INVALID, consume nothing.
+    let h2, p2, b2 = honkmqtt::header([0x30, 0x80, 0x00]);
+    assert(h2 == honkmqtt::INVALID && p2 == 0 && b2 == 0);
+    let f2, u2 = honkmqtt::frame([0x30, 0x80, 0x00], 128);
+    assert(f2 == honkmqtt::INVALID && u2 == 0);
+    let s2, c2, t2, l2, o2, i2 = honkmqtt::publish([0x30, 0x80, 0x00], 128);
+    assert(s2 == honkmqtt::INVALID && c2 == 0 && t2 == 0 && l2 == 0 && o2 == 0 && i2 == 0);
+
+    // Empty topic PUBLISH with a following PINGREQ: INVALID; do not absorb
+    // adjacent-frame bytes into a successful parse.
     let adj: u8[6] = [0x30, 2, 0, 0, 0xc0, 0];
-    check_publish(adj, 10);
+    let s3, c3, t3, l3, o3, i3 = honkmqtt::publish(adj, 10);
+    assert(s3 == honkmqtt::INVALID && c3 == 0 && t3 == 0 && l3 == 0 && o3 == 0 && i3 == 0);
+
     // Wildcard-only filter vs $-topic rule.
     assert(!honkmqtt::matches("#", "$SYS"));
     assert(!honkmqtt::matches("+", "$x"));
-    // Encode failure leaves the caller buffer unchanged.
+
+    // Encode with forbidden flags: INVALID, written 0, buffer unchanged.
     var sink: u8[2] = [0x11, 0x22];
-    check_encode(0x81, "", sink, 0x11);
+    let e, w = honkmqtt::encode(0x81, "", sink);
+    assert(e == honkmqtt::INVALID && w == 0);
+    assert(sink[0] == 0x11 && sink[1] == 0x22);
 }
 
 // Deterministic generated malformed/boundary inputs (lengths, flags, UTF-8,
