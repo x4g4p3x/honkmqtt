@@ -1,5 +1,6 @@
-// A small end-to-end framing and topic-matching workload. Run a native release
-// build repeatedly; process startup is included in external wall-clock timing.
+// Combined encode + frame + topic-match workload. Times the steady-state loop
+// only (excludes process startup). Run a native optimized build; verify the
+// checksum; compare repeated samples externally.
 import honkmqtt from "..";
 import os;
 
@@ -8,6 +9,7 @@ fn main() {
     if argv.len != 5 { abort("expected body, filter, matching topic, non-matching topic"); }
     var total = 0;
     var buffer: u8[64] = [0; 64];
+    let t0 = clock();
     for i in 1000000 {
         let status, written = honkmqtt::encode(0x30, argv[1], buffer);
         let framed, used = honkmqtt::frame(buffer[0..written], 64);
@@ -18,5 +20,9 @@ fn main() {
             if honkmqtt::matches(argv[2], argv[4]) { total += 1; }
         }
     }
-    print("checksum: ", total);
+    let elapsed = clock() - t0;
+    print("workload=encode_frame_match");
+    print("iterations=", 1000000);
+    print("checksum=", total);
+    print("steady_seconds=", elapsed);
 }

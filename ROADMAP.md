@@ -13,7 +13,7 @@ and scheduling. A complete network client, broker, TLS, persistence, and
 MQTT 5 are not part of the initial codec scope. Whether to build a client or
 MQTT 5 support is a later product decision, not an implicit commitment.
 
-As of the fuzz-smoke slice on top of merged `677fe7e`, the library has
+As of the perf-baseline slice on top of merged `9d84fef`, the library has
 fixed-header parsing, bounded frame detection, opaque-body encoding, PUBLISH
 parsing, UTF-8/topic validation, and topic-filter matching. `scripts/test.py`
 is the repeatable local test entry point; `.github/workflows/ci.yml` pins Goose
@@ -21,12 +21,13 @@ v2026.4 and runs lint plus interpreter and native tests on `ubuntu-24.04` and
 `windows-2022` (x64). `tests/api.goose` states positive and failure-status
 cases for each public operation. `tests/fuzz.goose` is a reproducible
 randomized smoke campaign (default seed `20261116`, ≥10000 cases) with saved
-regressions and deterministic generated boundaries. Goose v2026.4 has no
-source-mapped coverage mechanism in its documented CLI, so there is no
-measured coverage percentage. There is still no broker interoperability
-result or MQTT conformance certification. The PUBLISH parser does not
-implement QoS or session state. The existing benchmark covers one narrow
-combined framing/matching workload, not the complete library.
+regressions and deterministic generated boundaries. `scripts/bench.py` records
+optimized-build steady-state samples for encode/frame/match and PUBLISH parse
+workloads; a local Windows capture is in `baselines/m0-local-windows.md`.
+Goose v2026.4 has no source-mapped coverage mechanism in its documented CLI,
+so there is no measured coverage percentage. There is still no broker
+interoperability result or MQTT conformance certification. The PUBLISH parser
+does not implement QoS or session state.
 
 ## Milestones
 
@@ -67,14 +68,23 @@ combined framing/matching workload, not the complete library.
   48-byte random inputs; not AFL/libFuzzer; not a memory-safety or
   conformance claim; interesting failures should be added to
   `saved_regressions`.
-- Record representative optimized-build baselines, including PUBLISH parsing,
+- [x] Record representative optimized-build baselines, including PUBLISH parsing,
   with inputs, commands, machine, toolchain, timing boundaries and at least
   seven repeated samples after warmup per workload.
+  Evidence: `tests/bench_publish.goose`, updated `tests/benchmark.goose`,
+  `scripts/bench.py`, and `baselines/m0-local-windows.md` (Windows x64, Goose
+  v2026.4 / clang 14.0.6, warmup 1 + 7 serialized `steady_seconds` samples,
+  checksum-verified). Timing boundary: loop-only `clock()`. Limitations:
+  local Windows capture only; short fixed inputs; no network; not a CI SLA or
+  universal speed claim. Linux host baselines remain an explicit gap.
 
 **Exit:** automated normal and debug test runs pass; native builds pass on the
 declared supported environments; every public API has positive, negative and
 boundary cases; fuzz/randomized and benchmark workflows are reproducible and
 their limitations recorded. Missing platforms or tooling remain explicit gaps.
+M0 checklist items above are evidenced; Linux baseline samples and broader
+workloads remain optional follow-ups rather than unmarked blockers for the
+recorded Windows workflow.
 
 ### M1 — Complete PUBLISH codec
 

@@ -114,20 +114,32 @@ needs no separate C compiler. The tests are deterministic software checks, not
 an interoperability or conformance suite. The protocol reference is the
 [OASIS MQTT 3.1.1 standard](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html).
 
-For a small repeatable performance workload, build `tests/benchmark.goose` in
-release mode and time the resulting executable repeatedly, for example:
+### Optimized-build baselines
+
+Use `python scripts/bench.py --warmup 1 --samples 7` to build `-O2` natives,
+discard warmup, and record at least seven serialized steady-state samples for:
+
+| Workload | Source | What it measures | Expected checksum |
+| --- | --- | --- | --- |
+| `encode_frame_match` | `tests/benchmark.goose` | 1e6 encode+frame + alternating topic matches | `16500000` |
+| `publish_parse` | `tests/bench_publish.goose` | 1e6 `publish` parses of a fixed QoS 1 vector | `4679000000` |
+
+Timing boundary: each program prints `steady_seconds` from Goose `clock()`
+around the timed loop only (process startup excluded). The runner checks
+checksums and prints raw samples plus min/median/max/mean; it does **not**
+assert wall-clock budgets. Manual single runs remain valid, for example:
 
 ```sh
-goose build tests/benchmark.goose
+goose build -O2 tests/benchmark.goose
 ./tests/benchmark "sensor reading" "sensors/+/temperature" "sensors/kitchen/temperature" "sensors/kitchen/humidity"
+goose build -O2 tests/bench_publish.goose
+./tests/bench_publish
 ```
 
-On Windows use `tests/benchmark.exe`. Each run performs one million encodes,
-frame checks, and topic matches and prints a checksum (16500000 for these
-inputs). It exercises a single short body and two ASCII topics, with no network
-I/O; it is not a general throughput or safety assessment. Compare repeated
-timings on the same machine, compiler, build options, and inputs, and verify
-correctness separately.
+A recorded local Windows x64 capture (machine, toolchain, raw samples, limits)
+is in [baselines/m0-local-windows.md](baselines/m0-local-windows.md). These
+workloads use short fixed inputs and no network I/O; they are not a general
+throughput, latency SLA, or safety assessment.
 
 ## Roadmap
 
