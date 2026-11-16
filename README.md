@@ -53,15 +53,15 @@ python scripts/test.py --native --require-native
 ```
 
 `scripts/test.py` is the single repeatable test entry point. It runs
-`tests/test.goose`, `tests/publish.goose`, `tests/coverage.goose`, and
-`tests/api.goose` in the Goose in-process runner, both normally and with
-`--debug`. With `--native` it also `goose build`s and executes those programs
-when `goose toolchain` reports a C compiler; `--require-native` fails if that
-path is skipped. Toolchain launch failures, nonzero exits, and unrecognized
-output are errors (not a successful skip). Native mode aborts a target if the
-previous executable cannot be removed. Run `python scripts/test_selftest.py`
-for those regression checks. Individual `goose tests/...` and
-`goose build tests/...` commands remain valid.
+`tests/test.goose`, `tests/publish.goose`, `tests/coverage.goose`,
+`tests/api.goose`, and `tests/fuzz.goose` in the Goose in-process runner, both
+normally and with `--debug`. With `--native` it also `goose build`s and
+executes those programs when `goose toolchain` reports a C compiler;
+`--require-native` fails if that path is skipped. Toolchain launch failures,
+nonzero exits, and unrecognized output are errors (not a successful skip).
+Native mode aborts a target if the previous executable cannot be removed. Run
+`python scripts/test_selftest.py` for those regression checks. Individual
+`goose tests/...` and `goose build tests/...` commands remain valid.
 
 `tests/api.goose` is the behavioral matrix for every public operation and its
 documented failure statuses (`header`/`frame`/`encode`/`publish` status codes
@@ -70,6 +70,24 @@ output on `encode` failure. `tests/coverage.goose` remains a combinatorial
 flags/length exercise; it is **not** measured line coverage. Goose v2026.4
 exposes no source-mapped coverage or instrumentation command in `goose help` /
 `goose help --man`, so this repository does not report a coverage percentage.
+
+### Randomized smoke (fuzz)
+
+`tests/fuzz.goose` is a reproducible bounded smoke campaign (default seed
+`20261116`, default `10000` cases) over `header`/`frame`/`publish`/`encode`
+and UTF-8/topic/filter/`matches`, with saved fixed regressions and
+deterministic generated flag/length/UTF-8/wildcard/truncation cases first.
+Override with:
+
+```sh
+goose tests/fuzz.goose -- 20261116 10000
+```
+
+Record the printed seed and case count. On failure under `--debug`, add a
+minimal fixed vector to the `saved_regressions` section. This is a minimum
+smoke campaign, not a coverage claim, AFL/libFuzzer replacement, memory-safety
+proof, or MQTT conformance result. Buffers are capped (48-byte random inputs);
+it does not explore multi-megabyte remaining lengths.
 
 Run `python scripts/lint.py` to check Goose formatting and compiler
 diagnostics across the repository. It requires Python 3 and Goose on PATH;
