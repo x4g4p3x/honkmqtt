@@ -138,14 +138,15 @@ goose build -O2 tests/bench_publish.goose
 ./tests/bench_publish
 ```
 
-A recorded local Windows x64 capture (machine, toolchain, anti-elision notes,
-raw samples, clock resolution, SHA-256 pins for the measured library/bench
-sources on a dirty tree, limits) is in
-[baselines/m0-local-windows.md](baselines/m0-local-windows.md). These
-workloads use short representative inputs and no network I/O; they are not a
-general throughput, latency SLA, or safety assessment. Linux host baselines
-remain a gap; this capture alone does not complete M0. Local-only until
-explicitly published.
+Recorded local captures (machine, toolchain, anti-elision notes, raw samples,
+clock resolution, SHA-256 pins, limits):
+
+- Windows x64: [baselines/m0-local-windows.md](baselines/m0-local-windows.md)
+- Linux x64 (Ubuntu 24.04 **WSL2**): [baselines/m0-local-linux.md](baselines/m0-local-linux.md)
+
+These workloads use short representative inputs and no network I/O; they are
+not a general throughput, latency SLA, or safety assessment. Linux timings are
+WSL2, not bare-metal CI hardware.
 
 ## Roadmap
 
