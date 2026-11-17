@@ -27,8 +27,9 @@ Project-specific Codex workflows are in `.agents/skills/`.
 - Preserve caller-owned buffers, documented non-overlap requirements, bounds,
   error behavior, and transport independence. Treat all input as untrusted.
 - For performance changes, measure representative complete operations before and
-  after using equivalent optimized builds and repeated samples. Preserve safety
-  checks and correctness; report the workload, variability, and limitations.
-  Do not add timing assertions to ordinary tests.
+  after using equivalent optimized builds and repeated samples. Prefer
+  `python scripts/bench.py` (warmup + ≥7 serialized samples, checksum checks).
+  Preserve safety checks and correctness; report the workload, variability, and
+  limitations. Do not add timing assertions to ordinary tests.
 - Do not commit generated executables or build artifacts. Keep public API and
   README examples consistent with intentional behavioral changes.
