@@ -13,27 +13,27 @@ and scheduling. A complete network client, broker, TLS, persistence, and
 MQTT 5 are not part of the initial codec scope. Whether to build a client or
 MQTT 5 support is a later product decision, not an implicit commitment.
 
-As of the perf-baseline slice on top of merged `9d84fef`, the library has
-fixed-header parsing, bounded frame detection, opaque-body encoding, PUBLISH
-parsing, UTF-8/topic validation, and topic-filter matching. `scripts/test.py`
-is the repeatable local test entry point; `.github/workflows/ci.yml` pins Goose
-v2026.4 and runs lint plus interpreter and native tests on `ubuntu-24.04` and
-`windows-2022` (x64). `tests/api.goose` states positive and failure-status
-cases for each public operation. `tests/fuzz.goose` is a reproducible
-randomized smoke campaign (default seed `20261116`, ≥10000 cases) with saved
-regressions and deterministic generated boundaries. `scripts/bench.py` records
-optimized-build steady-state samples for encode/frame/match and PUBLISH parse
-workloads with runtime-varying cases (anti-elision); a local Windows capture is
-in `baselines/m0-local-windows.md`. M0 is still in progress (Linux baselines
-gap).
-Goose v2026.4 has no source-mapped coverage mechanism in its documented CLI,
-so there is no measured coverage percentage. There is still no broker
-interoperability result or MQTT conformance certification. The PUBLISH parser
-does not implement QoS or session state.
+As of M0 Exit evidence on tip `58c7745` plus local Linux baseline capture, the
+library has fixed-header parsing, bounded frame detection, opaque-body encoding,
+PUBLISH parsing, UTF-8/topic validation, and topic-filter matching.
+`scripts/test.py` is the repeatable local test entry point;
+`.github/workflows/ci.yml` pins Goose v2026.4 and runs lint plus interpreter
+and native tests on `ubuntu-24.04` and `windows-2022` (x64). `tests/api.goose`
+states positive and failure-status cases for each public operation.
+`tests/fuzz.goose` is a reproducible randomized smoke campaign (default seed
+`20261116`, ≥10000 cases) with saved regressions and deterministic generated
+boundaries. `scripts/bench.py` records optimized-build steady-state samples for
+encode/frame/match and PUBLISH parse workloads with runtime-varying cases
+(anti-elision); local captures are in `baselines/m0-local-windows.md` and
+`baselines/m0-local-linux.md` (Ubuntu 24.04 under WSL2). Goose v2026.4 has no
+source-mapped coverage mechanism in its documented CLI, so there is no measured
+coverage percentage. There is still no broker interoperability result or MQTT
+conformance certification. The PUBLISH parser does not implement QoS or session
+state.
 
 ## Milestones
 
-### M0 — Reliable foundation (in progress)
+### M0 — Reliable foundation (complete)
 
 - [x] Provide a single repeatable test entry point and CI initially targeting
   Windows x64 and Linux x64 with Goose v2026.4 pinned; document C compiler
@@ -73,30 +73,26 @@ does not implement QoS or session state.
 - [x] Record representative optimized-build baselines, including PUBLISH parsing,
   with inputs, commands, machine, toolchain, timing boundaries and at least
   seven repeated samples after warmup per workload.
-  Evidence: `tests/bench_publish.goose` (4 PUBLISH cases with loop-index packet
-  mutations), `tests/benchmark.goose` (3 encode/frame/match cases with body and
-  topic mutations; legacy argv rejected), `scripts/bench.py`, and
-  `baselines/m0-local-windows.md` (Windows x64, Goose v2026.4 / clang 14.0.6,
-  warmup 1 + 7 serialized `steady_seconds` samples, checksum-verified against
-  independent expectations; `clock_res_ns=100` with raw sample variation).
-  Anti-elision: clang `-O2` asm of Goose `-O2` C shows runtime stores then
-  `callq honkmqtt_publish_g8` in the timed loop; encode/frame work remains in
-  the combined timed loop with `honkmqtt_matches_g8` calls. Measured sources
-  frozen at `30061b2e650d26a93da958ac510e4f2cd1c1018f` and pinned by git-blob
-  SHA-256 in the baseline note (manifest
-  `bb36a45d1c4cbcd568ffc1ec1bab1fc0bbedd8cf2d59d328b573a3eac3d42bcd`). Timing
-  boundary: loop-only `clock()`. Limitations: local Windows capture only; short
-  representative inputs; no network; not a CI SLA or universal speed claim.
-  Linux host baselines remain an explicit gap. This Windows baseline record
-  alone does **not** complete M0.
+  Evidence: `tests/bench_publish.goose` / `tests/benchmark.goose` /
+  `scripts/bench.py`; Windows capture `baselines/m0-local-windows.md` (clang
+  14.0.6, `clock_res_ns=100`); Linux capture `baselines/m0-local-linux.md`
+  (Ubuntu 24.04 WSL2, Goose linux-x64 v2026.4, gcc 13.3.0, warmup 1 + 7
+  samples, checksums `138498139` / `17675999524`, `clock_res_ns=9`). Measured
+  source blobs share manifest
+  `bb36a45d1c4cbcd568ffc1ec1bab1fc0bbedd8cf2d59d328b573a3eac3d42bcd`. Timing
+  boundary: loop-only `clock()`. Limitations: short representative inputs; no
+  network; not a CI SLA; Linux numbers are **WSL2**, not bare-metal GHA hosts.
 
 **Exit:** automated normal and debug test runs pass; native builds pass on the
 declared supported environments; every public API has positive, negative and
 boundary cases; fuzz/randomized and benchmark workflows are reproducible and
 their limitations recorded. Missing platforms or tooling remain explicit gaps.
-M0 remains **in progress**: Windows baseline workflow is evidenced with
-anti-elision notes; Linux baseline samples are still an unmarked-platform gap
-relative to the dual-target CI surface.
+**Reassessment (2026-11-17):** Exit criteria are **satisfied**. Native CI on
+Linux+Windows at `58c7745` remains green; API/fuzz evidence unchanged; Windows
+and Linux (WSL2 Ubuntu 24.04) optimized baselines are both recorded with source
+identity and sample tables. Remaining gaps are optional (bare-metal Linux host
+baselines, broader size sweeps, Goose coverage tooling)—not unmarked Exit
+blockers.
 
 ### M1 — Complete PUBLISH codec
 

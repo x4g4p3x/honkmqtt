@@ -1,8 +1,8 @@
 # M0 local optimized-build baselines (Windows x64)
 
 Recorded local baseline for HonkMQTT M0. This is a single-machine snapshot,
-not a CI SLA, product throughput claim, or cross-platform ranking. M0 is not
-marked complete from this capture alone (Linux host baselines remain a gap).
+not a CI SLA, product throughput claim, or cross-platform ranking. Companion
+Linux (WSL2) capture: `baselines/m0-local-linux.md`.
 
 ## Source and commands
 
