@@ -56,13 +56,16 @@ Returns `(status, consumed, packet_identifier)`. A successful packet is always
 four bytes with Remaining Length 2 and a nonzero big-endian Packet Identifier
 (OASIS MQTT 3.1.1 §§3.4–3.7); PUBREL fixed flags must be `0b0010`. On any
 failure `consumed` and `packet_identifier` are zero (the status itself is the
-non-`OK` code). `header` status is returned first: incomplete or illegal
-fixed-header/flags/non-minimal Remaining Length encodings propagate before
-type or body checks. After a complete header, Remaining Length must be 2—so a
-finished header with the wrong length is `INVALID` even if the two identifier
-bytes have not arrived yet—then type must equal `kind`, then a missing body is
-`INCOMPLETE`, then a zero Packet Identifier is `INVALID`. Trailing bytes after
-a complete packet are left unconsumed. `encode_pubresp(kind, packet_id, out)`
+non-`OK` code). Unsupported `kind` (not in 4–7) returns `INVALID` with those
+zeros before any header parsing—so empty input with a bad kind is still
+`INVALID`, not `INCOMPLETE`. For a supported `kind`, `header` status
+propagates next: incomplete or illegal fixed-header/flags/non-minimal
+Remaining Length encodings return before type or body checks. After a complete
+header, Remaining Length must be 2—so a finished header with the wrong length
+is `INVALID` even if the two identifier bytes have not arrived yet—then type
+must equal `kind`, then a missing body is `INCOMPLETE`, then a zero Packet
+Identifier is `INVALID`. Trailing bytes after a complete packet are left
+unconsumed. `encode_pubresp(kind, packet_id, out)`
 writes those four bytes (`INVALID` for bad kind or id not in 1..65535; then
 `NO_SPACE` if `out` is shorter than 4) and leaves `out` unchanged on every
 error. This is structural codec support only—not a QoS exchange state machine.

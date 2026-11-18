@@ -104,9 +104,11 @@ fn truncations() {
 }
 
 fn malformed() {
-    // Bad kind argument.
+    // Bad kind argument (checked before header; empty input stays INVALID).
     parse_fail([0x40, 0x02, 0x00, 0x01], 3, honkmqtt::INVALID);
     parse_fail([0x40, 0x02, 0x00, 0x01], 8, honkmqtt::INVALID);
+    parse_fail("", 3, honkmqtt::INVALID);
+    parse_fail("", honkmqtt::PUBACK, honkmqtt::INCOMPLETE);
     var out: u8[4] = [0; 4];
     encode_fail(3, 1, out, honkmqtt::INVALID);
     encode_fail(0, 1, out, honkmqtt::INVALID);
