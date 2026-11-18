@@ -35,6 +35,13 @@ WORKLOADS = (
         # 1e6 iters over 4 runtime-mutated PUBLISH cases; see tests/bench_publish.goose.
         "expected_checksum": 17675999524,
     },
+    {
+        "name": "publish_encode",
+        "source": Path("tests/bench_encode_publish.goose"),
+        "args": [],
+        # 1e6 iters over 4 runtime-mutated encode_publish cases; see tests/bench_encode_publish.goose.
+        "expected_checksum": 17860248136,
+    },
 )
 
 

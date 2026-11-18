@@ -154,6 +154,7 @@ discard warmup, and record at least seven serialized steady-state samples for:
 | --- | --- | --- | --- |
 | `encode_frame_match` | `tests/benchmark.goose` | 1e6 encode+frame + matches over 3 runtime-mutated cases | `138498139` |
 | `publish_parse` | `tests/bench_publish.goose` | 1e6 `publish` parses over 4 runtime-mutated PUBLISH cases | `17675999524` |
+| `publish_encode` | `tests/bench_encode_publish.goose` | 1e6 `encode_publish` over 4 runtime-mutated cases (QoS 0/1/2, short and 64-byte payloads) | `17860248136` |
 
 Timing boundary: each program prints `steady_seconds` from Goose `clock()`
 around the timed loop only (process startup excluded), plus `clock_res_ns`.
@@ -167,17 +168,22 @@ goose build -O2 tests/benchmark.goose
 ./tests/benchmark
 goose build -O2 tests/bench_publish.goose
 ./tests/bench_publish
+goose build -O2 tests/bench_encode_publish.goose
+./tests/bench_encode_publish
 ```
 
 Recorded local captures (machine, toolchain, anti-elision notes, raw samples,
 clock resolution, SHA-256 pins, limits):
 
-- Windows x64: [baselines/m0-local-windows.md](baselines/m0-local-windows.md)
-- Linux x64 (Ubuntu 24.04 **WSL2**): [baselines/m0-local-linux.md](baselines/m0-local-linux.md)
+- M0 Windows x64: [baselines/m0-local-windows.md](baselines/m0-local-windows.md)
+- M0 Linux x64 (Ubuntu 24.04 **WSL2**): [baselines/m0-local-linux.md](baselines/m0-local-linux.md)
+- M1 `encode_publish` Windows x64: [baselines/m1-local-windows.md](baselines/m1-local-windows.md)
+- M1 `encode_publish` Linux x64 (Ubuntu 24.04 **WSL2**): [baselines/m1-local-linux.md](baselines/m1-local-linux.md)
 
 These workloads use short representative inputs and no network I/O; they are
 not a general throughput, latency SLA, or safety assessment. Linux timings are
-WSL2, not bare-metal CI hardware.
+WSL2, not bare-metal CI hardware. Do not treat Windows vs WSL2 wall times as a
+comparative performance claim; checksum equality is the cross-platform check.
 
 ## Roadmap
 

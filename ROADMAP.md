@@ -13,22 +13,24 @@ and scheduling. A complete network client, broker, TLS, persistence, and
 MQTT 5 are not part of the initial codec scope. Whether to build a client or
 MQTT 5 support is a later product decision, not an implicit commitment.
 
-As of M0 Exit on `cf8dbed` and the M1 PUBLISH-encoder slice, the library has
-fixed-header parsing, bounded frame detection, opaque-body encoding, PUBLISH
-parse/encode, UTF-8/topic validation, and topic-filter matching.
-`scripts/test.py` is the repeatable local test entry point;
-`.github/workflows/ci.yml` pins Goose v2026.4 and runs lint plus interpreter
-and native tests on `ubuntu-24.04` and `windows-2022` (x64). `tests/api.goose`
-states positive and failure-status cases for each public operation.
-`tests/fuzz.goose` is a reproducible randomized smoke campaign (default seed
-`20261116`, ≥10000 cases) with saved regressions and deterministic generated
-boundaries. `scripts/bench.py` records optimized-build steady-state samples for
-encode/frame/match and PUBLISH parse workloads with runtime-varying cases
-(anti-elision); local captures are in `baselines/m0-local-windows.md` and
-`baselines/m0-local-linux.md` (Ubuntu 24.04 under WSL2). Goose v2026.4 has no
-source-mapped coverage mechanism in its documented CLI, so there is no measured
-coverage percentage. There is still no broker interoperability result or MQTT
-conformance certification. The PUBLISH parser does not implement QoS or session
+As of M0 Exit on `cf8dbed` and M1 Exit evidence on
+`a38b0aade5cdcd71fb9c4f8dde3b3399b04cfa77` (`encode_publish` baselines),
+the library has fixed-header parsing, bounded frame detection, opaque-body
+encoding, PUBLISH parse/encode with limit vectors, UTF-8/topic validation, and
+topic-filter matching. `scripts/test.py` is the repeatable local test entry
+point; `.github/workflows/ci.yml` pins Goose v2026.4 and runs lint plus
+interpreter and native tests on `ubuntu-24.04` and `windows-2022` (x64).
+`tests/api.goose` states positive and failure-status cases for each public
+operation. `tests/fuzz.goose` is a reproducible randomized smoke campaign
+(default seed `20261116`, ≥10000 cases) with saved regressions and
+deterministic generated boundaries. `scripts/bench.py` records optimized-build
+steady-state samples for encode/frame/match, PUBLISH parse, and
+`encode_publish` workloads with runtime-varying cases (anti-elision); local
+captures are in `baselines/m0-local-*.md` and `baselines/m1-local-*.md`
+(Ubuntu 24.04 under WSL2 for Linux). Goose v2026.4 has no source-mapped
+coverage mechanism in its documented CLI, so there is no measured coverage
+percentage. There is still no broker interoperability result or MQTT
+conformance certification. The PUBLISH codec does not implement QoS or session
 state.
 
 ## Milestones
@@ -94,7 +96,7 @@ identity and sample tables. Remaining gaps are optional (bare-metal Linux host
 baselines, broader size sweeps, Goose coverage tooling)—not unmarked Exit
 blockers.
 
-### M1 — Complete PUBLISH codec (in progress)
+### M1 — Complete PUBLISH codec (Exit met)
 
 - [x] Add a PUBLISH encoder that validates topic, QoS flags and packet identifier,
   uses caller-provided non-overlapping buffers, and preserves output on failure.
@@ -117,14 +119,17 @@ blockers.
   opt-in `tests/publish_encode_maxrl.goose` (~512 MiB, two buffers; not in
   `scripts/test.py`). Commands and platform results:
   `baselines/m1-encode-limits.md`.
-- [ ] Optimized-build baseline for `encode_publish` (M1 Exit requires a
-  reproducible performance baseline; deferred until after limit vectors).
+- [x] Optimized-build baseline for `encode_publish`: `tests/bench_encode_publish.goose`
+  via `scripts/bench.py` (warmup + ≥7 checksum-validated samples);
+  Windows and Ubuntu WSL2 captures in `baselines/m1-local-windows.md` and
+  `baselines/m1-local-linux.md` (checksum `17860248136` on both; measurement
+  commit `a38b0aa`).
 
 **Exit:** the documented PUBLISH API and vectors pass on supported builds;
 malformed inputs are bounded; performance has a reproducible baseline. No
 QoS state-machine or broker interoperability claim follows from this milestone.
-M1 remains **in progress** until an optimized `encode_publish` baseline is
-evidenced (limit vectors are checked on Windows and Ubuntu WSL2 x64).
+**M1 Exit criteria satisfied** by that evidence (still not a conformance or
+security claim; main tip updates when this slice merges).
 
 ### M2 — MQTT 3.1.1 control-packet codec
 
