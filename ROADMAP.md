@@ -113,7 +113,7 @@ blockers.
   Remaining Length at `MAX_REMAINING` (accept) / `MAX_REMAINING+1` (reject),
   plus `NO_SPACE` for valid size with short `out`. Evidence:
   `tests/publish_encode.goose` (`topic_length_limits`, heap ~128 KiB);
-  opt-in `tests/publish_encode_maxrl.goose` (~512 MiB heap; not in
+  opt-in `tests/publish_encode_maxrl.goose` (~512 MiB, two buffers; not in
   `scripts/test.py`). Commands and platform results:
   `baselines/m1-encode-limits.md`.
 - [ ] Optimized-build baseline for `encode_publish` (M1 Exit requires a

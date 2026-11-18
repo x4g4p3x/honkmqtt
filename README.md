@@ -86,9 +86,12 @@ this repository does not report a coverage percentage.
 
 `tests/publish_encode_maxrl.goose` is an **opt-in** Remaining Length stress
 for `encode_publish` at MQTT `MAX_REMAINING` (accept) and `MAX_REMAINING+1`
-(reject), plus `NO_SPACE` for a valid maximum with a short `out`. Peak heap
-is about **512 MiB** (payload ~256 MiB + out ~256 MiB); it is intentionally
-excluded from `scripts/test.py`. Run explicitly when validating M1 limits:
+(reject), plus `NO_SPACE` for a valid maximum with a short `out` view. Peak
+heap is two buffers only ≈ **512 MiB** (payload capacity
+`MAX_REMAINING-2` = 268435453; out `5+MAX_REMAINING` = 268435460); exact-max
+cases slice the payload prefix and `NO_SPACE` reuses `out[0..need-1]` with no
+third allocation. It is intentionally excluded from `scripts/test.py`. Run
+explicitly when validating M1 limits:
 
 ```sh
 goose tests/publish_encode_maxrl.goose

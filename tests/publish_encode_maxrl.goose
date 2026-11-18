@@ -1,9 +1,10 @@
 // Opt-in encode_publish Remaining Length boundary stress (MQTT MAX_REMAINING).
-// Not part of scripts/test.py: peak heap is ~512 MiB (payload + out).
+// Not part of scripts/test.py. Peak heap is two buffers only (~512 MiB):
+//   payload capacity = MAX_REMAINING - 2 = 268435453  (max+1 case; no resize)
+//   out capacity     = 5 + MAX_REMAINING = 268435460
+// Exact-max cases use payload[0..MAX_REMAINING-3]; NO_SPACE reuses out[0..need-1]
+// (no third ~256 MiB allocation).
 //
-// Expected memory (QoS 0, topic "a"):
-//   payload len = MAX_REMAINING - 3 = 268435452 (~256 MiB)
-//   out len     = 5 + MAX_REMAINING = 268435460 (~256 MiB)
 // Independent OASIS MQTT 3.1.1 §§2.2.3 / 3.3 header for remaining=268435455:
 //   first 0x30; Remaining Length VLQ 0xFF 0xFF 0xFF 0x7F; topic len 0x00 0x01; 'a'
 //
@@ -37,35 +38,35 @@ fn sample_payload(got: const u8[:], expect_byte: u8) {
 fn main() {
     let max_rem = honkmqtt::MAX_REMAINING;
     assert(max_rem == 268435455);
-    let payload_len = max_rem - 3; // 2-byte topic length + 1-byte topic "a"
-    let need = 5 + max_rem;        // 1 fixed + 4 RL digits + remaining
+    // Allocate once at max+1 payload size; slice for exact maximum.
+    let payload_over = max_rem - 2; // remaining = MAX+1 with topic "a"
+    let payload_max = max_rem - 3;  // remaining = MAX
+    let need = 5 + max_rem;         // 1 fixed + 4 RL digits + remaining
 
     var payload: u8[>..] = [];
-    payload.resize(payload_len, 0x3c);
+    payload.resize(payload_over, 0x3c);
+    let max_payload = payload[0..payload_max];
     var out: u8[>..] = [];
     out.resize(need, 0xa5);
 
-    let st, n = honkmqtt::encode_publish(false, 0, false, "a", 0, payload, out);
+    let st, n = honkmqtt::encode_publish(false, 0, false, "a", 0, max_payload, out);
     assert(st == honkmqtt::OK && n == need);
     check_header(out);
-    assert(out[8..need] == payload);
+    assert(out[8..need] == max_payload);
     for i in need..out.len { assert(out[i] == 0xa5); }
     sample_payload(out[8..need], 0x3c);
     let ps, used, t, tl, p, id = honkmqtt::publish(out[0..n], max_rem);
     assert(ps == honkmqtt::OK && used == n && tl == 1 && id == 0);
     assert(out[t] == 'a' && out[t..t + tl] == "a");
-    assert(out[p..used] == payload);
+    assert(out[p..used] == max_payload);
 
-    // Valid maximum size, short out → NO_SPACE (distinguishes from INVALID).
-    var short: u8[>..] = [];
-    short.resize(need - 1, 0x5a);
-    let ns, nn = honkmqtt::encode_publish(false, 0, false, "a", 0, payload, short);
+    // Valid maximum size, short out → NO_SPACE via need-1 view of the same out.
+    fill(out, 0x5a);
+    let ns, nn = honkmqtt::encode_publish(false, 0, false, "a", 0, max_payload, out[0..need - 1]);
     assert(ns == honkmqtt::NO_SPACE && nn == 0);
-    unchanged(short, 0x5a);
+    unchanged(out, 0x5a);
 
-    // Remaining Length = MAX_REMAINING + 1 → INVALID; reuse out as sentinel sink.
-    // payload.len = (MAX+1) - 3 = MAX_REMAINING - 2.
-    payload.resize(max_rem - 2, 0x3c);
+    // Remaining Length = MAX_REMAINING + 1 → INVALID; full payload, same out.
     fill(out, 0x5a);
     let bad, bn = honkmqtt::encode_publish(false, 0, false, "a", 0, payload, out);
     assert(bad == honkmqtt::INVALID && bn == 0);
