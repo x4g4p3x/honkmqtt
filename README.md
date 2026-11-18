@@ -28,7 +28,7 @@ well-formed Unicode scalar values and exclude U+0000; they do not reject
 additional code points discouraged by MQTT. Do not use this as a security
 boundary or production MQTT implementation yet.
 
-The fixed-header and frame functions accept `const u8[:]` and return status codes; `frame` reports how many bytes to consume only on success. Keep incomplete input in your own bounded buffer and retry after receiving more data. Supply a maximum permitted body size to `frame` to limit buffering. `encode`, `encode_publish`, and `encode_pubresp` require caller-owned output buffers. The library never owns the transport.
+The fixed-header and frame functions accept `const u8[:]` and return status codes; `frame` reports how many bytes to consume only on success. Keep incomplete input in your own bounded buffer and retry after receiving more data. Supply a maximum permitted body size to `frame` to limit buffering. `encode` and `encode_publish` require non-overlapping caller-owned output buffers; `encode_pubresp` also writes into a caller-owned `out`. The library never owns the transport.
 
 `publish(input, max_body)` accepts a complete or partial MQTT 3.1.1 PUBLISH
 frame and returns `(status, consumed, topic_offset, topic_length,
@@ -54,13 +54,18 @@ written length is 0. Successful encodings are accepted by `publish` when
 `PUBACK`/`PUBREC`/`PUBREL`/`PUBCOMP` (types 4–7) and must match the packet.
 Returns `(status, consumed, packet_identifier)`. A successful packet is always
 four bytes with Remaining Length 2 and a nonzero big-endian Packet Identifier
-(OASIS MQTT 3.1.1 §§3.4–3.7); PUBREL fixed flags must be `0b0010`. Truncation
-returns `INCOMPLETE` with zero consumption; wrong type/flags/RL/zero id return
-`INVALID` with all results zero; trailing bytes after a complete packet are
-left unconsumed. `encode_pubresp(kind, packet_id, out)` writes those four bytes
-(`INVALID` for bad kind or id not in 1..65535; then `NO_SPACE` if `out` is
-shorter than 4) and leaves `out` unchanged on every error. This is structural
-codec support only—not a QoS exchange state machine.
+(OASIS MQTT 3.1.1 §§3.4–3.7); PUBREL fixed flags must be `0b0010`. On any
+failure `consumed` and `packet_identifier` are zero (the status itself is the
+non-`OK` code). `header` status is returned first: incomplete or illegal
+fixed-header/flags/non-minimal Remaining Length encodings propagate before
+type or body checks. After a complete header, Remaining Length must be 2—so a
+finished header with the wrong length is `INVALID` even if the two identifier
+bytes have not arrived yet—then type must equal `kind`, then a missing body is
+`INCOMPLETE`, then a zero Packet Identifier is `INVALID`. Trailing bytes after
+a complete packet are left unconsumed. `encode_pubresp(kind, packet_id, out)`
+writes those four bytes (`INVALID` for bad kind or id not in 1..65535; then
+`NO_SPACE` if `out` is shorter than 4) and leaves `out` unchanged on every
+error. This is structural codec support only—not a QoS exchange state machine.
 
 ## Use
 

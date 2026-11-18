@@ -124,9 +124,11 @@ fn malformed() {
     parse_fail([0x30, 0x02, 0x00, 0x01], honkmqtt::PUBACK, honkmqtt::INVALID);
     parse_fail([0xc0, 0x00], honkmqtt::PUBACK, honkmqtt::INVALID);
 
-    // Wrong Remaining Length value (not 2).
+    // Wrong Remaining Length value (not 2). A complete header with RL≠2 is
+    // INVALID even before the (wrong-sized) body bytes arrive.
     parse_fail([0x40, 0x00], honkmqtt::PUBACK, honkmqtt::INVALID);
     parse_fail([0x40, 0x01, 0x00], honkmqtt::PUBACK, honkmqtt::INVALID);
+    parse_fail([0x40, 0x03], honkmqtt::PUBACK, honkmqtt::INVALID);
     parse_fail([0x40, 0x03, 0x00, 0x01, 0x00], honkmqtt::PUBACK, honkmqtt::INVALID);
     // Non-minimal Remaining Length for value 2.
     parse_fail([0x40, 0x82, 0x00, 0x00, 0x01], honkmqtt::PUBACK, honkmqtt::INVALID);

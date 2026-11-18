@@ -243,10 +243,14 @@ fn valid_pubresp_kind(kind: i64) -> bool {
 // and must match the packet type byte. On success returns (OK, 4, packet_id).
 // On any error consumed and packet_id are zero; trailing bytes stay unconsumed.
 //
-// Failure precedence (first match wins):
-//   INVALID — kind not in {4,5,6,7}; fixed-header/type/flags rejected by header;
-//             packet type ≠ kind; Remaining Length ≠ 2; Packet Identifier == 0
-//   INCOMPLETE — truncated before a complete 4-byte packet (consume nothing)
+// Failure precedence (first match wins; consumed and packet_id are always 0):
+//   INVALID — kind not in {4,5,6,7}
+//   (else) propagate header() status (INCOMPLETE/INVALID for truncated or
+//          illegal fixed-header/flags/non-minimal Remaining Length)
+//   INVALID — packet type ≠ kind; or Remaining Length ≠ 2 (even if the body
+//             bytes have not arrived yet, once the header is complete)
+//   INCOMPLETE — header OK and RL==2 but identifier bytes are missing
+//   INVALID — Packet Identifier == 0
 fn pubresp(input: const u8[:], kind: i64) -> i64, i64, i64 {
     if !valid_pubresp_kind(kind) { return INVALID, 0, 0; }
     let status, prefix, body = header(input);
