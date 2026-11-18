@@ -133,6 +133,42 @@ fn failures_and_sentinels() {
     eq_prefix(exact, expect);
 }
 
+fn topic_length_limits() {
+    // OASIS MQTT 3.1.1 §§1.5.3 / 2.2.3 / 3.3.2: topic UTF-8 string max 65535;
+    // QoS 0 Remaining Length = 2 + topic.len. Heap buffers keep stack bounded.
+    // Independent expected header for remaining=65537 (VLQ 0x81,0x80,0x04):
+    //   0x30 | 0x81 0x80 0x04 | 0xff 0xff | topic...
+    var topic: u8[>..] = [];
+    topic.resize(65535, 'a');
+    var out: u8[>..] = [];
+    out.resize(65541, 0xa5);
+    let st, n = honkmqtt::encode_publish(false, 0, false, topic, 0, "", out);
+    assert(st == honkmqtt::OK && n == 65541);
+    assert(out[0] == 0x30);
+    assert(out[1] == 0x81 && out[2] == 0x80 && out[3] == 4);
+    assert(out[4] == 0xff && out[5] == 0xff);
+    assert(out[6..65541] == topic);
+    for i in 65541..out.len { assert(out[i] == 0xa5); }
+    let ps, used, t, tl, p, id = honkmqtt::publish(out[0..n], 65537);
+    assert(ps == honkmqtt::OK && used == n && tl == 65535 && id == 0);
+    assert(out[t..t + tl] == topic);
+    assert(p == used);
+
+    // Valid size, short out: NO_SPACE, sentinel unchanged (useful vs INVALID).
+    var short: u8[>..] = [];
+    short.resize(65540, 0x5a);
+    let ns, nn = honkmqtt::encode_publish(false, 0, false, topic, 0, "", short);
+    assert(ns == honkmqtt::NO_SPACE && nn == 0);
+    unchanged(short, 0x5a);
+
+    // 65536-byte topic exceeds MQTT UTF-8 string length → INVALID.
+    topic.resize(65536, 'a');
+    fill(out, 0x5a);
+    let bad, bn = honkmqtt::encode_publish(false, 0, false, topic, 0, "", out);
+    assert(bad == honkmqtt::INVALID && bn == 0);
+    unchanged(out, 0x5a);
+}
+
 fn adjacent_and_opaque_compat() {
     // Encoded PUBLISH followed by an independent PINGREQ in the same buffer.
     var buf: u8[16] = [0; 16];
@@ -157,6 +193,7 @@ fn main() {
     wire_vectors();
     remaining_length_transitions();
     failures_and_sentinels();
+    topic_length_limits();
     adjacent_and_opaque_compat();
     print("PUBLISH encode tests passed");
 }

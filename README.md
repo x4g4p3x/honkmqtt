@@ -77,11 +77,27 @@ Native mode aborts a target if the previous executable cannot be removed. Run
 documented failure statuses (`header`/`frame`/`encode`/`encode_publish`/
 `publish` and the boolean UTF-8/topic/filter/`matches` contracts), including
 unchanged output on encode failures. `tests/publish_encode.goose` holds
-independent PUBLISH encode wire vectors and sentinel cases.
-`tests/coverage.goose` remains a combinatorial flags/length exercise; it is
-**not** measured line coverage. Goose v2026.4 exposes no source-mapped coverage
-or instrumentation command in `goose help` / `goose help --man`, so this
-repository does not report a coverage percentage.
+independent PUBLISH encode wire vectors and sentinel cases, including the
+65535-byte topic limit (accept) and 65536-byte rejection with unchanged
+output. `tests/coverage.goose` remains a combinatorial flags/length exercise;
+it is **not** measured line coverage. Goose v2026.4 exposes no source-mapped
+coverage or instrumentation command in `goose help` / `goose help --man`, so
+this repository does not report a coverage percentage.
+
+`tests/publish_encode_maxrl.goose` is an **opt-in** Remaining Length stress
+for `encode_publish` at MQTT `MAX_REMAINING` (accept) and `MAX_REMAINING+1`
+(reject), plus `NO_SPACE` for a valid maximum with a short `out`. Peak heap
+is about **512 MiB** (payload ~256 MiB + out ~256 MiB); it is intentionally
+excluded from `scripts/test.py`. Run explicitly when validating M1 limits:
+
+```sh
+goose tests/publish_encode_maxrl.goose
+goose --debug tests/publish_encode_maxrl.goose
+# optional native:
+goose build tests/publish_encode_maxrl.goose && ./tests/publish_encode_maxrl
+```
+
+Platform results and memory notes: `baselines/m1-encode-limits.md`.
 
 ### Randomized smoke (fuzz)
 
