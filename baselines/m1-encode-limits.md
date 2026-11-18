@@ -16,8 +16,10 @@ File: `tests/publish_encode.goose` → `topic_length_limits()`
 | Same inputs, out len 65540 | `NO_SPACE`, n=0, sentinel unchanged |
 | Topic len 65536 | `INVALID`, n=0, sentinel unchanged |
 
-Allocation: heap `u8[>..]` (~64 KiB topic + ~64 KiB out). Included in
-`python scripts/test.py`.
+Allocation: three heap `u8[>..]` buffers. Peak simultaneous lengths are
+topic 65536 + out 65541 + short 65540 = **196617** bytes (~192 KiB of
+buffer data), because `short` stays live through the 65536 reject case;
+allocator/slice-header overhead is extra. Included in `python scripts/test.py`.
 
 ## Opt-in stress (Remaining Length)
 

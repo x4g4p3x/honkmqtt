@@ -112,7 +112,8 @@ blockers.
 - [x] Maximum topic length encode vector (65535 accept / 65536 reject) and
   Remaining Length at `MAX_REMAINING` (accept) / `MAX_REMAINING+1` (reject),
   plus `NO_SPACE` for valid size with short `out`. Evidence:
-  `tests/publish_encode.goose` (`topic_length_limits`, heap ~128 KiB);
+  `tests/publish_encode.goose` (`topic_length_limits`, peak three buffers
+  196617 bytes);
   opt-in `tests/publish_encode_maxrl.goose` (~512 MiB, two buffers; not in
   `scripts/test.py`). Commands and platform results:
   `baselines/m1-encode-limits.md`.
