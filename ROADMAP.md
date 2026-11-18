@@ -109,18 +109,22 @@ blockers.
   packet-id validity, buffer sizes, Remaining Length 127/128 transitions,
   adjacent trailing frames, truncation via parser, independent expected bytes
   before round trips. Evidence: `tests/publish_encode.goose`.
-- [ ] Maximum topic length encode vector (65535) and Remaining Length near
-  `MAX_REMAINING` encode stress (parser has related coverage; encoder size
-  arithmetic is checked but not exercised at those extremes in this slice).
+- [x] Maximum topic length encode vector (65535 accept / 65536 reject) and
+  Remaining Length at `MAX_REMAINING` (accept) / `MAX_REMAINING+1` (reject),
+  plus `NO_SPACE` for valid size with short `out`. Evidence:
+  `tests/publish_encode.goose` (`topic_length_limits`, peak three buffers
+  196617 bytes);
+  opt-in `tests/publish_encode_maxrl.goose` (~512 MiB, two buffers; not in
+  `scripts/test.py`). Commands and platform results:
+  `baselines/m1-encode-limits.md`.
 - [ ] Optimized-build baseline for `encode_publish` (M1 Exit requires a
-  reproducible performance baseline; deferred as out of this bounded encode
-  API slice).
+  reproducible performance baseline; deferred until after limit vectors).
 
 **Exit:** the documented PUBLISH API and vectors pass on supported builds;
 malformed inputs are bounded; performance has a reproducible baseline. No
 QoS state-machine or broker interoperability claim follows from this milestone.
-M1 remains **in progress** until the max-topic/`MAX_REMAINING` encode vectors
-and an optimized `encode_publish` baseline are evidenced.
+M1 remains **in progress** until an optimized `encode_publish` baseline is
+evidenced (limit vectors are checked on Windows and Ubuntu WSL2 x64).
 
 ### M2 — MQTT 3.1.1 control-packet codec
 
