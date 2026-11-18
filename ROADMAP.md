@@ -13,9 +13,9 @@ and scheduling. A complete network client, broker, TLS, persistence, and
 MQTT 5 are not part of the initial codec scope. Whether to build a client or
 MQTT 5 support is a later product decision, not an implicit commitment.
 
-As of M0 Exit evidence on tip `58c7745` plus local Linux baseline capture, the
-library has fixed-header parsing, bounded frame detection, opaque-body encoding,
-PUBLISH parsing, UTF-8/topic validation, and topic-filter matching.
+As of M0 Exit on `cf8dbed` and the M1 PUBLISH-encoder slice, the library has
+fixed-header parsing, bounded frame detection, opaque-body encoding, PUBLISH
+parse/encode, UTF-8/topic validation, and topic-filter matching.
 `scripts/test.py` is the repeatable local test entry point;
 `.github/workflows/ci.yml` pins Goose v2026.4 and runs lint plus interpreter
 and native tests on `ubuntu-24.04` and `windows-2022` (x64). `tests/api.goose`
@@ -94,20 +94,33 @@ identity and sample tables. Remaining gaps are optional (bare-metal Linux host
 baselines, broader size sweeps, Goose coverage tooling)—not unmarked Exit
 blockers.
 
-### M1 — Complete PUBLISH codec
+### M1 — Complete PUBLISH codec (in progress)
 
-- Add a PUBLISH encoder that validates topic, QoS flags and packet identifier,
+- [x] Add a PUBLISH encoder that validates topic, QoS flags and packet identifier,
   uses caller-provided non-overlapping buffers, and preserves output on failure.
-- Specify buffer ownership, offsets, limits, failure precedence, incomplete
+  Evidence: `encode_publish` in `honkmqtt.goose`; `tests/publish_encode.goose`
+  (independent wire vectors + sentinels); `tests/api.goose` status matrix;
+  README contract (OASIS MQTT 3.1.1 §§1.5.3, 2.2.3, 2.3.1, 3.3, 4.7).
+- [x] Specify buffer ownership, offsets, limits, failure precedence, incomplete
   input and compatibility with the existing parser and opaque encoder.
-- Test QoS 0/1/2, DUP/RETAIN combinations, empty/binary payloads, maximum topic
-  length, malformed strings and IDs, buffer sizes, length-field transitions,
-  concatenated and truncated frames. Compare against independent expected
-  wire vectors and exercise encode/decode round trips.
+  Evidence: API comments + README; successful encodings round-trip through
+  `publish`; opaque `encode` unchanged for non-PUBLISH framing.
+- [x] Test QoS 0/1/2, DUP/RETAIN combinations, empty/binary payloads, topic and
+  packet-id validity, buffer sizes, Remaining Length 127/128 transitions,
+  adjacent trailing frames, truncation via parser, independent expected bytes
+  before round trips. Evidence: `tests/publish_encode.goose`.
+- [ ] Maximum topic length encode vector (65535) and Remaining Length near
+  `MAX_REMAINING` encode stress (parser has related coverage; encoder size
+  arithmetic is checked but not exercised at those extremes in this slice).
+- [ ] Optimized-build baseline for `encode_publish` (M1 Exit requires a
+  reproducible performance baseline; deferred as out of this bounded encode
+  API slice).
 
 **Exit:** the documented PUBLISH API and vectors pass on supported builds;
 malformed inputs are bounded; performance has a reproducible baseline. No
 QoS state-machine or broker interoperability claim follows from this milestone.
+M1 remains **in progress** until the max-topic/`MAX_REMAINING` encode vectors
+and an optimized `encode_publish` baseline are evidenced.
 
 ### M2 — MQTT 3.1.1 control-packet codec
 

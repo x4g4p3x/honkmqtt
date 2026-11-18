@@ -97,6 +97,25 @@ fn publish_statuses() {
     assert(et == honkmqtt::INVALID && eu2 == 0 && et2 == 0 && el2 == 0 && ep2 == 0 && ei2 == 0);
 }
 
+fn encode_publish_statuses() {
+    var out: u8[16] = [0; 16];
+    for i in out.len { out[i] = 0xaa; }
+    // OK QoS 0 empty payload
+    let ok, n = honkmqtt::encode_publish(false, 0, false, "a", 0, "", out);
+    assert(ok == honkmqtt::OK && n == 5);
+    assert(out[0] == 0x30 && out[1] == 3 && out[2] == 0 && out[3] == 1 && out[4] == 'a');
+    assert(out[5] == 0xaa);
+    // INVALID leaves buffer unchanged
+    for i in out.len { out[i] = 0xbb; }
+    let bad, bn = honkmqtt::encode_publish(true, 0, false, "a", 0, "", out);
+    assert(bad == honkmqtt::INVALID && bn == 0);
+    for i in out.len { assert(out[i] == 0xbb); }
+    // NO_SPACE
+    var tiny: u8[2] = [0xcc, 0xcc];
+    let nos, nn = honkmqtt::encode_publish(false, 0, false, "a", 0, "", tiny);
+    assert(nos == honkmqtt::NO_SPACE && nn == 0 && tiny[0] == 0xcc && tiny[1] == 0xcc);
+}
+
 fn matches_statuses() {
     assert(honkmqtt::matches("a/b", "a/b"));
     assert(honkmqtt::matches("+/b", "a/b"));
@@ -116,6 +135,7 @@ fn main() {
     encode_statuses();
     utf8_topic_filter_statuses();
     publish_statuses();
+    encode_publish_statuses();
     matches_statuses();
     print("API behavioral matrix passed");
 }

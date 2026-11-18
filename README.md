@@ -12,11 +12,13 @@ This is an early foundation, **not a complete MQTT client or a complete MQTT 3.1
 - Encoding an opaque body into a caller-provided buffer.
 - Zero-copy parsing of MQTT 3.1.1 PUBLISH frames, including topic and packet
   identifier validation.
+- Encoding MQTT 3.1.1 PUBLISH frames into a caller-provided buffer
+  (`encode_publish`), with topic/QoS/DUP/RETAIN/identifier checks.
 - UTF-8 and topic name/filter checks, including wildcard matching and the `$` topic rule.
 
 It does **not** parse or validate other packet bodies, validate application payloads, implement QoS/session state, perform network I/O, support MQTT 5 properties, or claim protocol conformance. It rejects non-minimal remaining-length encodings. Applications must validate other packet bodies before acting on untrusted data. The UTF-8 checks enforce well-formed Unicode scalar values and exclude U+0000; they do not reject additional code points discouraged by MQTT. Do not use this as a security boundary or production MQTT implementation yet.
 
-The fixed-header and frame functions accept `const u8[:]` and return status codes; `frame` reports how many bytes to consume only on success. Keep incomplete input in your own bounded buffer and retry after receiving more data. Supply a maximum permitted body size to `frame` to limit buffering. `encode` requires a non-overlapping output buffer. The library never owns the transport.
+The fixed-header and frame functions accept `const u8[:]` and return status codes; `frame` reports how many bytes to consume only on success. Keep incomplete input in your own bounded buffer and retry after receiving more data. Supply a maximum permitted body size to `frame` to limit buffering. `encode` and `encode_publish` require non-overlapping output buffers. The library never owns the transport.
 
 `publish(input, max_body)` accepts a complete or partial MQTT 3.1.1 PUBLISH
 frame and returns `(status, consumed, topic_offset, topic_length,
@@ -29,6 +31,14 @@ identifier when required. It does not interpret the payload or enforce protocol
 session rules. Non-PUBLISH packets, malformed bodies, and lengths over
 `max_body` return `INVALID`; truncated frames return `INCOMPLETE`. All other
 return values are zero on failure, and trailing frames are left unconsumed.
+
+`encode_publish(dup, qos, retain, topic, packet_id, payload, out)` writes one
+PUBLISH packet and returns `(status, bytes_written)`. Failure precedence:
+`INVALID` for illegal QoS, DUP with QoS 0, invalid topic, packet-id rules
+(0 for QoS 0; 1..65535 for QoS 1/2), or Remaining Length over `MAX_REMAINING`;
+then `NO_SPACE` if `out` is too small. On every error `out` is unchanged and
+written length is 0. Successful encodings are accepted by `publish` when
+`max_body` permits. This is not a QoS state machine.
 
 ## Use
 
@@ -53,23 +63,25 @@ python scripts/test.py --native --require-native
 ```
 
 `scripts/test.py` is the single repeatable test entry point. It runs
-`tests/test.goose`, `tests/publish.goose`, `tests/coverage.goose`,
-`tests/api.goose`, and `tests/fuzz.goose` in the Goose in-process runner, both
-normally and with `--debug`. With `--native` it also `goose build`s and
-executes those programs when `goose toolchain` reports a C compiler;
-`--require-native` fails if that path is skipped. Toolchain launch failures,
+`tests/test.goose`, `tests/publish.goose`, `tests/publish_encode.goose`,
+`tests/coverage.goose`, `tests/api.goose`, and `tests/fuzz.goose` in the Goose
+in-process runner, both normally and with `--debug`. With `--native` it also
+`goose build`s and executes those programs when `goose toolchain` reports a C
+compiler; `--require-native` fails if that path is skipped. Toolchain launch failures,
 nonzero exits, and unrecognized output are errors (not a successful skip).
 Native mode aborts a target if the previous executable cannot be removed. Run
 `python scripts/test_selftest.py` for those regression checks. Individual
 `goose tests/...` and `goose build tests/...` commands remain valid.
 
 `tests/api.goose` is the behavioral matrix for every public operation and its
-documented failure statuses (`header`/`frame`/`encode`/`publish` status codes
-and the boolean UTF-8/topic/filter/`matches` contracts), including unchanged
-output on `encode` failure. `tests/coverage.goose` remains a combinatorial
-flags/length exercise; it is **not** measured line coverage. Goose v2026.4
-exposes no source-mapped coverage or instrumentation command in `goose help` /
-`goose help --man`, so this repository does not report a coverage percentage.
+documented failure statuses (`header`/`frame`/`encode`/`encode_publish`/
+`publish` and the boolean UTF-8/topic/filter/`matches` contracts), including
+unchanged output on encode failures. `tests/publish_encode.goose` holds
+independent PUBLISH encode wire vectors and sentinel cases.
+`tests/coverage.goose` remains a combinatorial flags/length exercise; it is
+**not** measured line coverage. Goose v2026.4 exposes no source-mapped coverage
+or instrumentation command in `goose help` / `goose help --man`, so this
+repository does not report a coverage percentage.
 
 ### Randomized smoke (fuzz)
 

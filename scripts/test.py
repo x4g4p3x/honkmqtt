@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Run HonkMQTT's deterministic Goose tests from one entry point.
 
-By default this runs tests/test.goose, tests/publish.goose, tests/coverage.goose,
-tests/api.goose, and tests/fuzz.goose in the in-process Goose runner, once
-normally and once with --debug. Pass --native to also goose build and execute
-each program when a C compiler is available; pass --require-native to fail if
-native work is skipped or unavailable. Set GOOSE to override the Goose
-executable.
+By default this runs tests/test.goose, tests/publish.goose,
+tests/publish_encode.goose, tests/coverage.goose, tests/api.goose, and
+tests/fuzz.goose in the in-process Goose runner, once normally and once with
+--debug. Pass --native to also goose build and execute each program when a C
+compiler is available; pass --require-native to fail if native work is skipped
+or unavailable. Set GOOSE to override the Goose executable.
 
 Native mode removes each target's pre-existing build product before building.
 If that executable cannot be removed, native work aborts for the target so a
@@ -29,6 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TESTS = (
     Path("tests/test.goose"),
     Path("tests/publish.goose"),
+    Path("tests/publish_encode.goose"),
     Path("tests/coverage.goose"),
     Path("tests/api.goose"),
     Path("tests/fuzz.goose"),
