@@ -9,5 +9,10 @@ fn main() {
     assert(es == honkmqtt::OK && n > 0);
     let ps, used, _, _, _, _ = honkmqtt::publish(pub_out[0..n], 64);
     assert(ps == honkmqtt::OK && used == n);
-    print("PINGREQ frame: ", size, " bytes; PUBLISH encoded: ", n, " bytes");
+    var ack: u8[4] = [0; 4];
+    let aks, akn = honkmqtt::encode_pubresp(honkmqtt::PUBACK, 1, ack);
+    assert(aks == honkmqtt::OK && akn == 4);
+    let rs, ru, rid = honkmqtt::pubresp(ack, honkmqtt::PUBACK);
+    assert(rs == honkmqtt::OK && ru == 4 && rid == 1);
+    print("PINGREQ frame: ", size, " bytes; PUBLISH encoded: ", n, " bytes; PUBACK id=", rid);
 }
