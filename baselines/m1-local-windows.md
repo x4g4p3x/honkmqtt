@@ -9,13 +9,14 @@ measurement.
 
 | Pin | Value |
 | --- | --- |
+| Measurement commit | `a38b0aade5cdcd71fb9c4f8dde3b3399b04cfa77` |
 | Branch | `ao/m1-roadmap/encode-publish-baselines` |
 | Base main | `4203d37add9473b44af35ac0a040e46973000349` |
 | Command | `python scripts/bench.py --warmup 1 --samples 7` |
 | Workload of record | `publish_encode` (`tests/bench_encode_publish.goose`) |
 
-**SHA-256 of LF file bytes** (working-tree content with CRLF normalized to LF)
-at capture:
+**SHA-256 of git blob bytes** at that measurement commit
+(`git show a38b0aa:path`):
 
 | Path | SHA-256 | Size |
 | --- | --- | --- |

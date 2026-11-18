@@ -9,12 +9,13 @@ not a CI SLA or universal speed claim. No cross-platform performance ranking.
 
 | Pin | Value |
 | --- | --- |
+| Measurement commit | `a38b0aade5cdcd71fb9c4f8dde3b3399b04cfa77` |
 | Base main | `4203d37add9473b44af35ac0a040e46973000349` |
 | Distro | `Ubuntu-24.04` (WSL2) |
 | Command | `python3 scripts/bench.py --warmup 1 --samples 7` |
 | Working copy | Tree synced into `/root/honkmqtt-m1-baselines` for build/exec |
 
-**Identity:** SHA-256 of LF file bytes (same as Windows capture):
+**Identity:** SHA-256 of git blob bytes at `a38b0aa` (same as Windows capture):
 
 | Path | SHA-256 | Size |
 | --- | --- | --- |

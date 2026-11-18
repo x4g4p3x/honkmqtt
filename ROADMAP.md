@@ -13,7 +13,8 @@ and scheduling. A complete network client, broker, TLS, persistence, and
 MQTT 5 are not part of the initial codec scope. Whether to build a client or
 MQTT 5 support is a later product decision, not an implicit commitment.
 
-As of M0 Exit on `cf8dbed` and M1 Exit on the `encode_publish` baseline slice,
+As of M0 Exit on `cf8dbed` and M1 Exit evidence on
+`a38b0aade5cdcd71fb9c4f8dde3b3399b04cfa77` (`encode_publish` baselines),
 the library has fixed-header parsing, bounded frame detection, opaque-body
 encoding, PUBLISH parse/encode with limit vectors, UTF-8/topic validation, and
 topic-filter matching. `scripts/test.py` is the repeatable local test entry
@@ -121,12 +122,14 @@ blockers.
 - [x] Optimized-build baseline for `encode_publish`: `tests/bench_encode_publish.goose`
   via `scripts/bench.py` (warmup + ≥7 checksum-validated samples);
   Windows and Ubuntu WSL2 captures in `baselines/m1-local-windows.md` and
-  `baselines/m1-local-linux.md` (checksum `17860248136` on both).
+  `baselines/m1-local-linux.md` (checksum `17860248136` on both; measurement
+  commit `a38b0aa`).
 
 **Exit:** the documented PUBLISH API and vectors pass on supported builds;
 malformed inputs are bounded; performance has a reproducible baseline. No
 QoS state-machine or broker interoperability claim follows from this milestone.
-**M1 Exit met** for those criteria; still not a conformance or security claim.
+**M1 Exit criteria satisfied** by that evidence (still not a conformance or
+security claim; main tip updates when this slice merges).
 
 ### M2 — MQTT 3.1.1 control-packet codec
 
