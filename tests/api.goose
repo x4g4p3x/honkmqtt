@@ -129,6 +129,27 @@ fn matches_statuses() {
     assert(!honkmqtt::matches("a+", "a+"));
 }
 
+fn pubresp_statuses() {
+    let ack: u8[4] = [0x40, 0x02, 0x00, 0x01];
+    let ok, used, id = honkmqtt::pubresp(ack, honkmqtt::PUBACK);
+    assert(ok == honkmqtt::OK && used == 4 && id == 1);
+    let inc, iu, ii = honkmqtt::pubresp(ack[0..2], honkmqtt::PUBACK);
+    assert(inc == honkmqtt::INCOMPLETE && iu == 0 && ii == 0);
+    let bad, bu, bi = honkmqtt::pubresp([0x41, 0x02, 0x00, 0x01], honkmqtt::PUBACK);
+    assert(bad == honkmqtt::INVALID && bu == 0 && bi == 0);
+    var out: u8[4] = [0xaa; 4];
+    let es, en = honkmqtt::encode_pubresp(honkmqtt::PUBREL, 2, out);
+    assert(es == honkmqtt::OK && en == 4);
+    assert(out[0] == 0x62 && out[1] == 2 && out[2] == 0 && out[3] == 2);
+    for i in out.len { out[i] = 0xbb; }
+    let inv, iw = honkmqtt::encode_pubresp(honkmqtt::PUBACK, 0, out);
+    assert(inv == honkmqtt::INVALID && iw == 0);
+    for i in out.len { assert(out[i] == 0xbb); }
+    var tiny: u8[2] = [0xcc, 0xcc];
+    let nos, nn = honkmqtt::encode_pubresp(honkmqtt::PUBCOMP, 1, tiny);
+    assert(nos == honkmqtt::NO_SPACE && nn == 0 && tiny[0] == 0xcc && tiny[1] == 0xcc);
+}
+
 fn main() {
     header_statuses();
     frame_statuses();
@@ -136,6 +157,7 @@ fn main() {
     utf8_topic_filter_statuses();
     publish_statuses();
     encode_publish_statuses();
+    pubresp_statuses();
     matches_statuses();
     print("API behavioral matrix passed");
 }
