@@ -10,9 +10,9 @@ fn unchanged(buf: const u8[:], v: u8) {
     for i in buf.len { assert(buf[i] == v); }
 }
 
-fn eq4(got: const u8[:], a: u8, b: u8, c: u8, d: u8) {
-    assert(got.len >= 4);
-    assert(got[0] == a && got[1] == b && got[2] == c && got[3] == d);
+fn eq4(got: const u8[:], expect: const u8[:]) {
+    assert(got.len >= 4 && expect.len == 4);
+    for i in 4 { assert(got[i] == expect[i]); }
 }
 
 fn parse_ok(session: bool, code: i64, expect: const u8[:]) {
@@ -31,15 +31,15 @@ fn parse_fail(input: const u8[:], expected: i64) {
     assert(st == expected && used == 0 && sp == false && rc == 0);
 }
 
-fn encode_ok(session: bool, code: i64, a: u8, b: u8, c: u8, d: u8) {
+// One independent 4-byte vector drives both parse and encode checks.
+fn vector_ok(session: bool, code: i64, expect: const u8[:]) {
+    parse_ok(session, code, expect);
     var out: u8[8] = [0; 8];
     fill(out, 0xa5);
     let st, n = honkmqtt::encode_connack(session, code, out);
     assert(st == honkmqtt::OK && n == 4);
-    eq4(out, a, b, c, d);
+    eq4(out, expect);
     for i in 4..out.len { assert(out[i] == 0xa5); }
-    let ps, used, sp, rc = honkmqtt::connack(out[0..n]);
-    assert(ps == honkmqtt::OK && used == n && sp == session && rc == code);
 }
 
 fn encode_fail(session: bool, code: i64, out: u8[:], expected: i64) {
@@ -50,24 +50,26 @@ fn encode_fail(session: bool, code: i64, out: u8[:], expected: i64) {
 }
 
 fn literal_vectors() {
-    // Accepted, clean session.
+    // Accepted; Session Present clear (structural only—not a CleanSession claim).
     let a0: u8[4] = [0x20, 0x02, 0x00, 0x00];
-    parse_ok(false, honkmqtt::CONNACK_ACCEPTED, a0);
-    encode_ok(false, 0, 0x20, 0x02, 0x00, 0x00);
+    vector_ok(false, honkmqtt::CONNACK_ACCEPTED, a0);
 
-    // Accepted, Session Present.
+    // Accepted, Session Present set.
     let a1: u8[4] = [0x20, 0x02, 0x01, 0x00];
-    parse_ok(true, 0, a1);
-    encode_ok(true, 0, 0x20, 0x02, 0x01, 0x00);
+    vector_ok(true, 0, a1);
 
-    // Refusal codes 1..5 with Session Present clear.
-    encode_ok(false, 1, 0x20, 0x02, 0x00, 0x01);
-    encode_ok(false, 2, 0x20, 0x02, 0x00, 0x02);
-    encode_ok(false, 3, 0x20, 0x02, 0x00, 0x03);
-    encode_ok(false, 4, 0x20, 0x02, 0x00, 0x04);
-    encode_ok(false, 5, 0x20, 0x02, 0x00, 0x05);
+    // Refusal codes 1..5 with Session Present clear — each has its own
+    // independently specified parser+encoder vector.
+    let r1: u8[4] = [0x20, 0x02, 0x00, 0x01];
+    vector_ok(false, honkmqtt::CONNACK_REFUSED_PROTOCOL, r1);
+    let r2: u8[4] = [0x20, 0x02, 0x00, 0x02];
+    vector_ok(false, honkmqtt::CONNACK_REFUSED_IDENTIFIER, r2);
+    let r3: u8[4] = [0x20, 0x02, 0x00, 0x03];
+    vector_ok(false, honkmqtt::CONNACK_REFUSED_SERVER, r3);
+    let r4: u8[4] = [0x20, 0x02, 0x00, 0x04];
+    vector_ok(false, honkmqtt::CONNACK_REFUSED_CREDENTIALS, r4);
     let r5: u8[4] = [0x20, 0x02, 0x00, 0x05];
-    parse_ok(false, honkmqtt::CONNACK_REFUSED_UNAUTHORIZED, r5);
+    vector_ok(false, honkmqtt::CONNACK_REFUSED_UNAUTHORIZED, r5);
 }
 
 fn truncations() {
@@ -113,6 +115,9 @@ fn malformed() {
     encode_fail(true, 5, out, honkmqtt::INVALID);
     var tiny: u8[3] = [0; 3];
     encode_fail(false, 0, tiny, honkmqtt::NO_SPACE);
+    // INVALID is decided before NO_SPACE: short out + illegal fields → INVALID.
+    encode_fail(true, 1, tiny, honkmqtt::INVALID);
+    encode_fail(false, 6, tiny, honkmqtt::INVALID);
 }
 
 fn adjacent_and_compat() {
@@ -120,7 +125,8 @@ fn adjacent_and_compat() {
     fill(buf, 0xee);
     let es, en = honkmqtt::encode_connack(false, 0, buf);
     assert(es == honkmqtt::OK && en == 4);
-    eq4(buf, 0x20, 0x02, 0x00, 0x00);
+    let expect: u8[4] = [0x20, 0x02, 0x00, 0x00];
+    eq4(buf, expect);
     let ps, pn = honkmqtt::encode(0xc0, "", buf[4..6]);
     assert(ps == honkmqtt::OK && pn == 2);
     assert(buf[4] == 0xc0 && buf[5] == 0);

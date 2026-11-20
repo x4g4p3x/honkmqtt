@@ -79,16 +79,17 @@ always four bytes with Remaining Length 2 (OASIS MQTT 3.1.1 §3.2): fixed
 header `0x20`, Connect Acknowledge Flags (bit 0 = Session Present; bits 1–7
 must be 0), and Connect Return code in 0..5 (`CONNACK_ACCEPTED` …
 `CONNACK_REFUSED_UNAUTHORIZED`). On any failure `consumed` is 0,
-`session_present` is false, and `return_code` is 0. `header` status propagates
-first; after a complete header, Remaining Length must be 2 (wrong length is
-`INVALID` even before the body arrives), then reserved flag bits, reserved
-return codes (6..255), and Session Present with a non-zero return code are
-`INVALID`; a missing body after a valid header is `INCOMPLETE`. Trailing bytes
-after a complete packet are left unconsumed. This does not validate a prior
-CONNECT or apply session policy. `encode_connack(session_present, return_code,
-out)` writes those four bytes (`INVALID` for return_code outside 0..5 or
-Session Present with a refusal; then `NO_SPACE` if `out` is shorter than 4)
-and leaves `out` unchanged on every error.
+`session_present` is false, and `return_code` is 0. Failure precedence: `header`
+status first; then reject wrong type or Remaining Length ≠ 2 (`INVALID` even
+if the body has not arrived once the header is complete); then if the body is
+missing return `INCOMPLETE`; then validate body flags and return code
+(reserved flag bits, reserved codes 6..255, or Session Present with a non-zero
+return code → `INVALID`). Trailing bytes after a complete packet are left
+unconsumed. This does not validate a prior CONNECT or apply session policy.
+`encode_connack(session_present, return_code, out)` writes those four bytes
+(`INVALID` for return_code outside 0..5 or Session Present with a refusal—
+checked before capacity; then `NO_SPACE` if `out` is shorter than 4) and leaves
+`out` unchanged on every error.
 
 ## Use
 

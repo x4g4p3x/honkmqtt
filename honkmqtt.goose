@@ -244,8 +244,8 @@ const CONNACK_REFUSED_UNAUTHORIZED = 5;
 //   INVALID — packet type ≠ CONNACK (2); or Remaining Length ≠ 2 (even if the
 //     body bytes have not arrived yet, once the header is complete)
 //   INCOMPLETE — header OK and RL==2 but acknowledge/return bytes are missing
-//   INVALID — Connect Acknowledge Flags bits 1..7 set; return code not in
-//     0..5; or Session Present set when return code ≠ 0
+//   INVALID — body flags/code: bits 1..7 set; return code > 5; or Session
+//     Present set when return code ≠ 0
 fn connack(input: const u8[:]) -> i64, i64, bool, i64 {
     let status, prefix, body = header(input);
     if status != OK { return status, 0, false, 0; }
@@ -254,7 +254,8 @@ fn connack(input: const u8[:]) -> i64, i64, bool, i64 {
     let flags = input[prefix] as i64;
     let code = input[prefix + 1] as i64;
     if (flags & 0xfe) != 0 { return INVALID, 0, false, 0; }
-    if code < 0 || code > 5 { return INVALID, 0, false, 0; }
+    // `code` is a u8 zero-extended to i64, so it is always >= 0.
+    if code > 5 { return INVALID, 0, false, 0; }
     let session = (flags & 1) != 0;
     if code != 0 && session { return INVALID, 0, false, 0; }
     return OK, prefix + body, session, code;
