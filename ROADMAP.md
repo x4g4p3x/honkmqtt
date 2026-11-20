@@ -14,12 +14,13 @@ MQTT 5 are not part of the initial codec scope. Whether to build a client or
 MQTT 5 support is a later product decision, not an implicit commitment.
 
 As of M0 Exit on `cf8dbed`, M1 Exit on `fc12ece` (`encode_publish` baselines),
-and M2 slices for the PUBACK family plus CONNACK, the library has fixed-header
-parsing, bounded frame detection, opaque-body encoding, PUBLISH parse/encode
-with limit vectors, PUBACK/PUBREC/PUBREL/PUBCOMP and CONNACK parse/encode,
-UTF-8/topic validation, and topic-filter matching. `scripts/test.py` is the repeatable local test entry
-point; `.github/workflows/ci.yml` pins Goose v2026.4 and runs lint plus
-interpreter and native tests on `ubuntu-24.04` and `windows-2022` (x64).
+and M2 slices for the PUBACK family, CONNACK, and CONNECT, the library has
+fixed-header parsing, bounded frame detection, opaque-body encoding, PUBLISH
+parse/encode with limit vectors, PUBACK/PUBREC/PUBREL/PUBCOMP, CONNACK, and
+CONNECT parse/encode, UTF-8/topic validation, and topic-filter matching.
+`scripts/test.py` is the repeatable local test entry point;
+`.github/workflows/ci.yml` pins Goose v2026.4 and runs lint plus interpreter
+and native tests on `ubuntu-24.04` and `windows-2022` (x64).
 `tests/api.goose` states positive and failure-status cases for each public
 operation. `tests/fuzz.goose` is a reproducible randomized smoke campaign
 (default seed `20261116`, ≥10000 cases) with saved regressions and
@@ -144,7 +145,12 @@ security claim; main tip updates when this slice merges).
   `encode_connack` and `CONNACK_*` return-code constants in `honkmqtt.goose`;
   independent vectors in `tests/connack.goose`; API matrix; README. Structural
   only—no CONNECT pairing or session policy.
-- [ ] CONNECT (paired with CONNACK above; still open)
+- [x] CONNECT parse and encode (Protocol Name/Level, Connect Flags, Keep Alive,
+  Client ID, optional Will Topic/Message and User Name/Password; OASIS MQTT
+  3.1.1 §§1.5.3, 2.2, 3.1). Evidence: `connect` / `encode_connect` and
+  `CONNECT_PROTOCOL_LEVEL` in `honkmqtt.goose`; independent vectors in
+  `tests/connect.goose`; API matrix; README. Structural only—no session, auth,
+  Will publication, or broker ClientId policy beyond empty-ID/Clean Session.
 - [ ] SUBSCRIBE/SUBACK
 - [ ] UNSUBSCRIBE/UNSUBACK
 - [ ] PINGREQ/PINGRESP (typed helpers; opaque `encode`/`frame` already cover

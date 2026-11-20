@@ -20,18 +20,21 @@ This is an early foundation, **not a complete MQTT client or a complete MQTT 3.1
 - Parsing and encoding MQTT 3.1.1 CONNACK (`connack` / `encode_connack`), a
   fixed 4-byte Connect Acknowledge Flags + Return code response with no
   payload.
+- Parsing and encoding MQTT 3.1.1 CONNECT (`connect` / `encode_connect`),
+  including protocol identity/level, Connect Flags, Keep Alive, Client ID, and
+  optional Will / User Name / Password fields.
 - UTF-8 and topic name/filter checks, including wildcard matching and the `$` topic rule.
 
-It does **not** parse or validate remaining control-packet bodies (CONNECT,
-SUBSCRIBE, …), validate application payloads, implement QoS/session state,
-perform network I/O, support MQTT 5 properties, or claim protocol conformance.
+It does **not** parse or validate remaining control-packet bodies (SUBSCRIBE,
+…), validate application payloads, implement QoS/session state, perform
+network I/O, support MQTT 5 properties, or claim protocol conformance.
 It rejects non-minimal remaining-length encodings. Applications must validate
 other packet bodies before acting on untrusted data. The UTF-8 checks enforce
 well-formed Unicode scalar values and exclude U+0000; they do not reject
 additional code points discouraged by MQTT. Do not use this as a security
 boundary or production MQTT implementation yet.
 
-The fixed-header and frame functions accept `const u8[:]` and return status codes; `frame` reports how many bytes to consume only on success. Keep incomplete input in your own bounded buffer and retry after receiving more data. Supply a maximum permitted body size to `frame` to limit buffering. `encode` and `encode_publish` require non-overlapping caller-owned output buffers; `encode_pubresp` and `encode_connack` also write into a caller-owned `out`. The library never owns the transport.
+The fixed-header and frame functions accept `const u8[:]` and return status codes; `frame` reports how many bytes to consume only on success. Keep incomplete input in your own bounded buffer and retry after receiving more data. Supply a maximum permitted body size to `frame` to limit buffering. `encode` and `encode_publish` require non-overlapping caller-owned output buffers; `encode_pubresp`, `encode_connack`, and `encode_connect` also write into a caller-owned `out`. The library never owns the transport.
 
 `publish(input, max_body)` accepts a complete or partial MQTT 3.1.1 PUBLISH
 frame and returns `(status, consumed, topic_offset, topic_length,
@@ -91,6 +94,29 @@ unconsumed. This does not validate a prior CONNECT or apply session policy.
 checked before capacity; then `NO_SPACE` if `out` is shorter than 4) and leaves
 `out` unchanged on every error.
 
+`connect(input, max_body)` parses one CONNECT (OASIS MQTT 3.1.1 §§1.5.3, 2.2,
+3.1) and returns `(status, consumed, connect_flags, keep_alive, client_id_off,
+client_id_len, will_topic_off, will_topic_len, will_message_off,
+will_message_len, username_off, username_len, password_off, password_len)`.
+Offsets refer to `input`. Absent optional fields use `off=0,len=0`;
+present-empty UTF-8/binary fields use `len=0` with `off` at the first data
+byte after the length prefix. The codec requires Protocol Name `"MQTT"`,
+Protocol Level `4` (`CONNECT_PROTOCOL_LEVEL`), reserved Connect Flag clear,
+consistent Will/User/Password flags and fields, MQTT UTF-8 Client ID / User
+Name, a valid topic name for Will Topic, opaque length-prefixed Will Message
+and Password, and exact Remaining Length consumption. Empty Client ID is
+accepted only with Clean Session set; server ClientId charset/1..23-byte
+acceptance policy is not applied. `max_body` bounds Remaining Length like
+`publish`. On any failure all other results are zero. Trailing bytes after a
+complete packet are left unconsumed. This is structural only—no session,
+authentication, or Will publication.
+`encode_connect(clean_session, keep_alive, client_id, will, will_qos,
+will_retain, will_topic, will_message, user, username, pass, password, out)`
+writes one CONNECT (`INVALID` for field/flag rules or Remaining Length over
+`MAX_REMAINING` before capacity; then `NO_SPACE` if `out` is too small). `out`
+must not overlap the borrowed field buffers; `out` is unchanged on every error.
+Successful encodings are accepted by `connect` when `max_body` permits.
+
 ## Use
 
 Install [Goose](https://github.com/aardappel/goose) v2026.4 or newer. Pin a commit or release tag when consuming this pre-release library. For local development:
@@ -115,28 +141,31 @@ python scripts/test.py --native --require-native
 
 `scripts/test.py` is the single repeatable test entry point. It runs
 `tests/test.goose`, `tests/publish.goose`, `tests/publish_encode.goose`,
-`tests/pubresp.goose`, `tests/connack.goose`, `tests/coverage.goose`,
-`tests/api.goose`, and `tests/fuzz.goose` in the Goose in-process runner, both
-normally and with `--debug`. With `--native` it also `goose build`s and
-executes those programs when `goose toolchain` reports a C compiler;
-`--require-native` fails if that path is skipped. Toolchain launch failures,
-nonzero exits, and unrecognized output are errors (not a successful skip).
-Native mode aborts a target if the previous executable cannot be removed. Run
-`python scripts/test_selftest.py` for those regression checks. Individual
-`goose tests/...` and `goose build tests/...` commands remain valid.
+`tests/pubresp.goose`, `tests/connack.goose`, `tests/connect.goose`,
+`tests/coverage.goose`, `tests/api.goose`, and `tests/fuzz.goose` in the Goose
+in-process runner, both normally and with `--debug`. With `--native` it also
+`goose build`s and executes those programs when `goose toolchain` reports a C
+compiler; `--require-native` fails if that path is skipped. Toolchain launch
+failures, nonzero exits, and unrecognized output are errors (not a successful
+skip). Native mode aborts a target if the previous executable cannot be
+removed. Run `python scripts/test_selftest.py` for those regression checks.
+Individual `goose tests/...` and `goose build tests/...` commands remain valid.
 
 `tests/api.goose` is the behavioral matrix for every public operation and its
 documented failure statuses (`header`/`frame`/`encode`/`encode_publish`/
-`publish`/`pubresp`/`encode_pubresp`/`connack`/`encode_connack` and the
-boolean UTF-8/topic/filter/`matches` contracts), including unchanged output on
-encode failures. `tests/publish_encode.goose` holds independent PUBLISH encode
-wire vectors and sentinel cases, including the 65535-byte topic limit (accept)
-and 65536-byte rejection with unchanged output. `tests/pubresp.goose` holds
-independent PUBACK/PUBREC/PUBREL/PUBCOMP vectors, truncations, malformed
-flags/RL/ids, and sentinel cases. `tests/connack.goose` holds independent
-CONNACK vectors for codes/flags, reserved bits/codes, inconsistent Session
-Present, truncations, and sentinels. `tests/coverage.goose` remains a
-combinatorial flags/length exercise;
+`publish`/`pubresp`/`encode_pubresp`/`connack`/`encode_connack`/`connect`/
+`encode_connect` and the boolean UTF-8/topic/filter/`matches` contracts),
+including unchanged output on encode failures. `tests/publish_encode.goose`
+holds independent PUBLISH encode wire vectors and sentinel cases, including the
+65535-byte topic limit (accept) and 65536-byte rejection with unchanged output.
+`tests/pubresp.goose` holds independent PUBACK/PUBREC/PUBREL/PUBCOMP vectors,
+truncations, malformed flags/RL/ids, and sentinel cases. `tests/connack.goose`
+holds independent CONNACK vectors for codes/flags, reserved bits/codes,
+inconsistent Session Present, truncations, and sentinels.
+`tests/connect.goose` holds independent CONNECT vectors for protocol
+identity/level, flags, optionals, present-empty fields, truncations, in-frame
+length errors, and sentinels. `tests/coverage.goose` remains a combinatorial
+flags/length exercise;
 it is **not** measured line coverage. Goose v2026.4 exposes no source-mapped
 coverage or instrumentation command in `goose help` / `goose help --man`, so
 this repository does not report a coverage percentage.

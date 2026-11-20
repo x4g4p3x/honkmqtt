@@ -19,5 +19,11 @@ fn main() {
     assert(cs == honkmqtt::OK && cn == 4);
     let ks, ku, sp, rc = honkmqtt::connack(ca);
     assert(ks == honkmqtt::OK && ku == 4 && sp == false && rc == 0);
-    print("PINGREQ frame: ", size, " bytes; PUBLISH encoded: ", n, " bytes; PUBACK id=", rid, "; CONNACK rc=", rc);
+    var conn: u8[32] = [0; 32];
+    let xs, xn = honkmqtt::encode_connect(
+        true, 0, "demo", false, 0, false, "", "", false, "", false, "", conn);
+    assert(xs == honkmqtt::OK && xn > 0);
+    let ys, yu, yf, _, _, yl, _, _, _, _, _, _, _, _ = honkmqtt::connect(conn[0..xn], 64);
+    assert(ys == honkmqtt::OK && yu == xn && (yf & 2) != 0 && yl == 4);
+    print("PINGREQ frame: ", size, " bytes; PUBLISH encoded: ", n, " bytes; PUBACK id=", rid, "; CONNACK rc=", rc, "; CONNECT id_len=", yl);
 }
