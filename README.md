@@ -106,10 +106,16 @@ consistent Will/User/Password flags and fields, MQTT UTF-8 Client ID / User
 Name, a valid topic name for Will Topic, opaque length-prefixed Will Message
 and Password, and exact Remaining Length consumption. Empty Client ID is
 accepted only with Clean Session set; server ClientId charset/1..23-byte
-acceptance policy is not applied. `max_body` bounds Remaining Length like
-`publish`. On any failure all other results are zero. Trailing bytes after a
-complete packet are left unconsumed. This is structural only—no session,
-authentication, or Will publication.
+acceptance policy is not applied. Structural Remaining Length must be in
+`CONNECT_MIN_REMAINING`..`CONNECT_MAX_REMAINING` (12..327695); after a
+complete header that check runs before body availability so an impossible RL
+returns `INVALID`, not `INCOMPLETE`. `max_body` further bounds Remaining
+Length like `publish`. Failure precedence: `max_body < 0`; `header` status;
+wrong type; RL > `max_body`; RL outside 12..327695; missing body
+(`INCOMPLETE`); then variable-header/payload malformation. On any failure all
+other results are zero. Trailing bytes after a complete packet are left
+unconsumed. This is structural only—no session, authentication, or Will
+publication.
 `encode_connect(clean_session, keep_alive, client_id, will, will_qos,
 will_retain, will_topic, will_message, user, username, pass, password, out)`
 writes one CONNECT (`INVALID` for field/flag rules or Remaining Length over
@@ -163,8 +169,8 @@ truncations, malformed flags/RL/ids, and sentinel cases. `tests/connack.goose`
 holds independent CONNACK vectors for codes/flags, reserved bits/codes,
 inconsistent Session Present, truncations, and sentinels.
 `tests/connect.goose` holds independent CONNECT vectors for protocol
-identity/level, flags, optionals, present-empty fields, truncations, in-frame
-length errors, and sentinels. `tests/coverage.goose` remains a combinatorial
+identity/level, flags, optionals, present-empty fields, structural Remaining
+Length bounds (12..327695), truncations, in-frame length errors, and sentinels. `tests/coverage.goose` remains a combinatorial
 flags/length exercise;
 it is **not** measured line coverage. Goose v2026.4 exposes no source-mapped
 coverage or instrumentation command in `goose help` / `goose help --man`, so

@@ -223,6 +223,11 @@ fn publish(input: const u8[:], max_body: i64) -> i64, i64, i64, i64, i64, i64 {
 
 // MQTT 3.1.1 CONNECT Protocol Level for this codec (OASIS §3.1.2.2).
 const CONNECT_PROTOCOL_LEVEL = 4;
+// Structural Remaining Length bounds for CONNECT: 10-byte variable header plus
+// Client ID and up to four optional length-prefixed fields, each at most
+// 2+65535 bytes → 10 + 5*65537 = 327695 (OASIS §§1.5.3, 3.1.2–3.1.3).
+const CONNECT_MIN_REMAINING = 12;
+const CONNECT_MAX_REMAINING = 327695;
 
 fn connect_fail(st: i64) -> i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64, i64 {
     return st, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0;
@@ -265,8 +270,12 @@ fn take_prefixed(input: const u8[:], pos: i64, end: i64) -> i64, i64, i64, i64 {
 // Failure precedence (first match wins; all other results are zero):
 //   INVALID — max_body < 0
 //   propagate header() status
-//   INVALID — type ≠ CONNECT (1); or Remaining Length > max_body
-//   INCOMPLETE — header OK but body bytes are missing
+//   INVALID — type ≠ CONNECT (1)
+//   INVALID — Remaining Length > max_body
+//   INVALID — Remaining Length < CONNECT_MIN_REMAINING or
+//             > CONNECT_MAX_REMAINING (after a complete header, before body
+//             availability—so an impossible RL never returns INCOMPLETE)
+//   INCOMPLETE — header OK and RL in range but body bytes are missing
 //   INVALID — malformed variable header/payload (protocol identity/level,
 //     flags, lengths past the body, UTF-8/topic rules, empty Client ID without
 //     Clean Session, or bytes left/unparsed inside Remaining Length)
@@ -274,10 +283,12 @@ fn connect(input: const u8[:], max_body: i64) -> i64, i64, i64, i64, i64, i64, i
     if max_body < 0 { return connect_fail(INVALID); }
     let status, prefix, body = header(input);
     if status != OK { return connect_fail(status); }
-    if input[0] / 16 != 1 || body > max_body { return connect_fail(INVALID); }
+    if input[0] / 16 != 1 { return connect_fail(INVALID); }
+    if body > max_body { return connect_fail(INVALID); }
+    if body < CONNECT_MIN_REMAINING || body > CONNECT_MAX_REMAINING {
+        return connect_fail(INVALID);
+    }
     if input.len - prefix < body { return connect_fail(INCOMPLETE); }
-    // Minimum: Protocol Name(6) + Level(1) + Flags(1) + Keep Alive(2) + ClientId len(2).
-    if body < 12 { return connect_fail(INVALID); }
     let end = prefix + body;
     var pos = prefix;
 
