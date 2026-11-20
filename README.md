@@ -17,6 +17,9 @@ This is an early foundation, **not a complete MQTT client or a complete MQTT 3.1
 - Parsing and encoding MQTT 3.1.1 PUBACK/PUBREC/PUBREL/PUBCOMP
   (`pubresp` / `encode_pubresp`), each a fixed 4-byte Packet Identifier
   acknowledgement with no payload.
+- Parsing and encoding MQTT 3.1.1 CONNACK (`connack` / `encode_connack`), a
+  fixed 4-byte Connect Acknowledge Flags + Return code response with no
+  payload.
 - UTF-8 and topic name/filter checks, including wildcard matching and the `$` topic rule.
 
 It does **not** parse or validate remaining control-packet bodies (CONNECT,
@@ -28,7 +31,7 @@ well-formed Unicode scalar values and exclude U+0000; they do not reject
 additional code points discouraged by MQTT. Do not use this as a security
 boundary or production MQTT implementation yet.
 
-The fixed-header and frame functions accept `const u8[:]` and return status codes; `frame` reports how many bytes to consume only on success. Keep incomplete input in your own bounded buffer and retry after receiving more data. Supply a maximum permitted body size to `frame` to limit buffering. `encode` and `encode_publish` require non-overlapping caller-owned output buffers; `encode_pubresp` also writes into a caller-owned `out`. The library never owns the transport.
+The fixed-header and frame functions accept `const u8[:]` and return status codes; `frame` reports how many bytes to consume only on success. Keep incomplete input in your own bounded buffer and retry after receiving more data. Supply a maximum permitted body size to `frame` to limit buffering. `encode` and `encode_publish` require non-overlapping caller-owned output buffers; `encode_pubresp` and `encode_connack` also write into a caller-owned `out`. The library never owns the transport.
 
 `publish(input, max_body)` accepts a complete or partial MQTT 3.1.1 PUBLISH
 frame and returns `(status, consumed, topic_offset, topic_length,
@@ -70,6 +73,24 @@ writes those four bytes (`INVALID` for bad kind or id not in 1..65535; then
 `NO_SPACE` if `out` is shorter than 4) and leaves `out` unchanged on every
 error. This is structural codec support only—not a QoS exchange state machine.
 
+`connack(input)` parses one CONNACK and returns
+`(status, consumed, session_present, return_code)`. A successful packet is
+always four bytes with Remaining Length 2 (OASIS MQTT 3.1.1 §3.2): fixed
+header `0x20`, Connect Acknowledge Flags (bit 0 = Session Present; bits 1–7
+must be 0), and Connect Return code in 0..5 (`CONNACK_ACCEPTED` …
+`CONNACK_REFUSED_UNAUTHORIZED`). On any failure `consumed` is 0,
+`session_present` is false, and `return_code` is 0. Failure precedence: `header`
+status first; then reject wrong type or Remaining Length ≠ 2 (`INVALID` even
+if the body has not arrived once the header is complete); then if the body is
+missing return `INCOMPLETE`; then validate body flags and return code
+(reserved flag bits, reserved codes 6..255, or Session Present with a non-zero
+return code → `INVALID`). Trailing bytes after a complete packet are left
+unconsumed. This does not validate a prior CONNECT or apply session policy.
+`encode_connack(session_present, return_code, out)` writes those four bytes
+(`INVALID` for return_code outside 0..5 or Session Present with a refusal—
+checked before capacity; then `NO_SPACE` if `out` is shorter than 4) and leaves
+`out` unchanged on every error.
+
 ## Use
 
 Install [Goose](https://github.com/aardappel/goose) v2026.4 or newer. Pin a commit or release tag when consuming this pre-release library. For local development:
@@ -94,25 +115,28 @@ python scripts/test.py --native --require-native
 
 `scripts/test.py` is the single repeatable test entry point. It runs
 `tests/test.goose`, `tests/publish.goose`, `tests/publish_encode.goose`,
-`tests/pubresp.goose`, `tests/coverage.goose`, `tests/api.goose`, and
-`tests/fuzz.goose` in the Goose in-process runner, both normally and with
-`--debug`. With `--native` it also `goose build`s and executes those programs
-when `goose toolchain` reports a C compiler; `--require-native` fails if that
-path is skipped. Toolchain launch failures, nonzero exits, and unrecognized
-output are errors (not a successful skip). Native mode aborts a target if the
-previous executable cannot be removed. Run `python scripts/test_selftest.py`
-for those regression checks. Individual `goose tests/...` and
-`goose build tests/...` commands remain valid.
+`tests/pubresp.goose`, `tests/connack.goose`, `tests/coverage.goose`,
+`tests/api.goose`, and `tests/fuzz.goose` in the Goose in-process runner, both
+normally and with `--debug`. With `--native` it also `goose build`s and
+executes those programs when `goose toolchain` reports a C compiler;
+`--require-native` fails if that path is skipped. Toolchain launch failures,
+nonzero exits, and unrecognized output are errors (not a successful skip).
+Native mode aborts a target if the previous executable cannot be removed. Run
+`python scripts/test_selftest.py` for those regression checks. Individual
+`goose tests/...` and `goose build tests/...` commands remain valid.
 
 `tests/api.goose` is the behavioral matrix for every public operation and its
 documented failure statuses (`header`/`frame`/`encode`/`encode_publish`/
-`publish`/`pubresp`/`encode_pubresp` and the boolean UTF-8/topic/filter/
-`matches` contracts), including unchanged output on encode failures.
-`tests/publish_encode.goose` holds independent PUBLISH encode wire vectors and
-sentinel cases, including the 65535-byte topic limit (accept) and 65536-byte
-rejection with unchanged output. `tests/pubresp.goose` holds independent
-PUBACK/PUBREC/PUBREL/PUBCOMP vectors, truncations, malformed flags/RL/ids, and
-sentinel cases. `tests/coverage.goose` remains a combinatorial flags/length exercise;
+`publish`/`pubresp`/`encode_pubresp`/`connack`/`encode_connack` and the
+boolean UTF-8/topic/filter/`matches` contracts), including unchanged output on
+encode failures. `tests/publish_encode.goose` holds independent PUBLISH encode
+wire vectors and sentinel cases, including the 65535-byte topic limit (accept)
+and 65536-byte rejection with unchanged output. `tests/pubresp.goose` holds
+independent PUBACK/PUBREC/PUBREL/PUBCOMP vectors, truncations, malformed
+flags/RL/ids, and sentinel cases. `tests/connack.goose` holds independent
+CONNACK vectors for codes/flags, reserved bits/codes, inconsistent Session
+Present, truncations, and sentinels. `tests/coverage.goose` remains a
+combinatorial flags/length exercise;
 it is **not** measured line coverage. Goose v2026.4 exposes no source-mapped
 coverage or instrumentation command in `goose help` / `goose help --man`, so
 this repository does not report a coverage percentage.

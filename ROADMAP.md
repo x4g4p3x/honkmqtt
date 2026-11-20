@@ -14,10 +14,10 @@ MQTT 5 are not part of the initial codec scope. Whether to build a client or
 MQTT 5 support is a later product decision, not an implicit commitment.
 
 As of M0 Exit on `cf8dbed`, M1 Exit on `fc12ece` (`encode_publish` baselines),
-and the M2 PUBACK-family slice, the library has fixed-header parsing, bounded
-frame detection, opaque-body encoding, PUBLISH parse/encode with limit vectors,
-PUBACK/PUBREC/PUBREL/PUBCOMP parse/encode, UTF-8/topic validation, and
-topic-filter matching. `scripts/test.py` is the repeatable local test entry
+and M2 slices for the PUBACK family plus CONNACK, the library has fixed-header
+parsing, bounded frame detection, opaque-body encoding, PUBLISH parse/encode
+with limit vectors, PUBACK/PUBREC/PUBREL/PUBCOMP and CONNACK parse/encode,
+UTF-8/topic validation, and topic-filter matching. `scripts/test.py` is the repeatable local test entry
 point; `.github/workflows/ci.yml` pins Goose v2026.4 and runs lint plus
 interpreter and native tests on `ubuntu-24.04` and `windows-2022` (x64).
 `tests/api.goose` states positive and failure-status cases for each public
@@ -139,7 +139,12 @@ security claim; main tip updates when this slice merges).
   `PUBCOMP` constants in `honkmqtt.goose`; independent vectors and
   malformed/truncation/sentinel cases in `tests/pubresp.goose`; API matrix in
   `tests/api.goose`; README contract. No QoS exchange state.
-- [ ] CONNECT/CONNACK
+- [x] CONNACK parse and encode (fixed 4-byte Connect Acknowledge Flags + Return
+  code; OASIS MQTT 3.1.1 §§2.2.2–2.2.3, 3.2). Evidence: `connack` /
+  `encode_connack` and `CONNACK_*` return-code constants in `honkmqtt.goose`;
+  independent vectors in `tests/connack.goose`; API matrix; README. Structural
+  only—no CONNECT pairing or session policy.
+- [ ] CONNECT (paired with CONNACK above; still open)
 - [ ] SUBSCRIBE/SUBACK
 - [ ] UNSUBSCRIBE/UNSUBACK
 - [ ] PINGREQ/PINGRESP (typed helpers; opaque `encode`/`frame` already cover
