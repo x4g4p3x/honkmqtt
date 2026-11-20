@@ -221,6 +221,62 @@ fn publish(input: const u8[:], max_body: i64) -> i64, i64, i64, i64, i64, i64 {
     return OK, end, topic_start, topic_len, payload_start, identifier;
 }
 
+// MQTT 3.1.1 CONNACK Connect Return codes (OASIS §3.2.2.3). Values 6..255 are
+// reserved and rejected by connack()/encode_connack().
+const CONNACK_ACCEPTED = 0;
+const CONNACK_REFUSED_PROTOCOL = 1;
+const CONNACK_REFUSED_IDENTIFIER = 2;
+const CONNACK_REFUSED_SERVER = 3;
+const CONNACK_REFUSED_CREDENTIALS = 4;
+const CONNACK_REFUSED_UNAUTHORIZED = 5;
+
+// Parse one MQTT 3.1.1 CONNACK (OASIS MQTT 3.1.1 §§2.2.2–2.2.3, 3.2). Wire form
+// with minimal Remaining Length is exactly four bytes: type/flags 0x20, 0x02,
+// Connect Acknowledge Flags, Connect Return code. No payload. On success
+// returns (OK, 4, session_present, return_code). On any error consumed is 0,
+// session_present is false, and return_code is 0. Trailing bytes stay
+// unconsumed. This is structural validation only—not CONNECT pairing or
+// session-state policy.
+//
+// Failure precedence (first match wins):
+//   propagate header() status (INCOMPLETE/INVALID for truncated or illegal
+//     fixed-header/flags/non-minimal Remaining Length)
+//   INVALID — packet type ≠ CONNACK (2); or Remaining Length ≠ 2 (even if the
+//     body bytes have not arrived yet, once the header is complete)
+//   INCOMPLETE — header OK and RL==2 but acknowledge/return bytes are missing
+//   INVALID — Connect Acknowledge Flags bits 1..7 set; return code not in
+//     0..5; or Session Present set when return code ≠ 0
+fn connack(input: const u8[:]) -> i64, i64, bool, i64 {
+    let status, prefix, body = header(input);
+    if status != OK { return status, 0, false, 0; }
+    if input[0] / 16 != 2 || body != 2 { return INVALID, 0, false, 0; }
+    if input.len - prefix < body { return INCOMPLETE, 0, false, 0; }
+    let flags = input[prefix] as i64;
+    let code = input[prefix + 1] as i64;
+    if (flags & 0xfe) != 0 { return INVALID, 0, false, 0; }
+    if code < 0 || code > 5 { return INVALID, 0, false, 0; }
+    let session = (flags & 1) != 0;
+    if code != 0 && session { return INVALID, 0, false, 0; }
+    return OK, prefix + body, session, code;
+}
+
+// Encode one CONNACK into a caller-owned buffer. Returns status and bytes
+// written (4 on success). Writes only after validation succeeds.
+//
+// Failure precedence (first match wins; out unchanged on every error):
+//   INVALID — return_code not in 0..5; or session_present with return_code ≠ 0
+//   NO_SPACE — out shorter than 4 bytes
+fn encode_connack(session_present: bool, return_code: i64, out: u8[:]) -> i64, i64 {
+    if return_code < 0 || return_code > 5 { return INVALID, 0; }
+    if return_code != 0 && session_present { return INVALID, 0; }
+    if out.len < 4 { return NO_SPACE, 0; }
+    out[0] = 0x20;
+    out[1] = 2;
+    if session_present { out[2] = 1; } else { out[2] = 0; }
+    out[3] = return_code as u8;
+    return OK, 4;
+}
+
 // MQTT 3.1.1 QoS acknowledgement control packet types (OASIS §§3.4–3.7).
 const PUBACK = 4;
 const PUBREC = 5;

@@ -14,5 +14,10 @@ fn main() {
     assert(aks == honkmqtt::OK && akn == 4);
     let rs, ru, rid = honkmqtt::pubresp(ack, honkmqtt::PUBACK);
     assert(rs == honkmqtt::OK && ru == 4 && rid == 1);
-    print("PINGREQ frame: ", size, " bytes; PUBLISH encoded: ", n, " bytes; PUBACK id=", rid);
+    var ca: u8[4] = [0; 4];
+    let cs, cn = honkmqtt::encode_connack(false, 0, ca);
+    assert(cs == honkmqtt::OK && cn == 4);
+    let ks, ku, sp, rc = honkmqtt::connack(ca);
+    assert(ks == honkmqtt::OK && ku == 4 && sp == false && rc == 0);
+    print("PINGREQ frame: ", size, " bytes; PUBLISH encoded: ", n, " bytes; PUBACK id=", rid, "; CONNACK rc=", rc);
 }
