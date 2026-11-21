@@ -2,6 +2,7 @@
 // Ephemeral Aedes MQTT 3.1.1 broker for HonkMQTT M3 interop (loopback only).
 "use strict";
 
+const fs = require("fs");
 const net = require("net");
 const aedes = require("aedes");
 
@@ -20,7 +21,8 @@ const broker = aedes({
 const server = net.createServer(broker.handle);
 server.listen(port, "127.0.0.1", () => {
   const addr = server.address();
-  process.stdout.write(`AEDES_READY ${addr.port}\n`);
+  // writeSync so the harness sees readiness under a piped stdout.
+  fs.writeSync(1, `AEDES_READY ${addr.port}\n`);
 });
 
 function shutdown(code) {

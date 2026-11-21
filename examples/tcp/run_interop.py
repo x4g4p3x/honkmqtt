@@ -47,17 +47,8 @@ def which(name: str) -> Optional[str]:
     found = shutil.which(name)
     if found:
         return found
-    # WSL often sees Windows Node only as node.exe under Program Files.
-    for candidate in (
-        "/mnt/c/Program Files/nodejs/node.exe",
-        "/mnt/c/Program Files/nodejs/npm.cmd",
-        r"C:\Program Files\nodejs\node.exe",
-        r"C:\Program Files\nodejs\npm.cmd",
-    ):
-        if name in ("node", "node.exe") and candidate.endswith("node.exe") and Path(candidate).is_file():
-            return candidate
-        if name in ("npm", "npm.cmd") and candidate.endswith("npm.cmd") and Path(candidate).is_file():
-            return candidate
+    # Prefer Linux Node on WSL loopback. Do not fall back to Windows node.exe —
+    # it binds on the Windows network namespace and is unreachable from WSL.
     return None
 
 
@@ -129,36 +120,63 @@ def start_mosquitto(workdir: Path) -> BrokerProc:
     return BrokerProc("mosquitto", version, port, proc, conf_hash)
 
 
-def ensure_aedes_installed() -> None:
-    pkg = BROKERS / "node_modules" / "aedes" / "package.json"
-    if pkg.is_file():
-        return
+def aedes_install_dir(workdir: Path) -> Path:
+    """Return a native-FS directory with ``npm ci`` tree for Aedes.
+
+    Installing ``node_modules`` on /mnt/c (9p/drvfs) can leave truncated
+    package.json files. Prefer a Linux temp dir under ``workdir``.
+    """
+    dest = workdir / "aedes_npm"
+    marker = dest / "node_modules" / "aedes" / "package.json"
+    if marker.is_file():
+        try:
+            json.loads(marker.read_text(encoding="utf-8"))
+            return dest
+        except (OSError, json.JSONDecodeError):
+            pass
+    lock = BROKERS / "package-lock.json"
+    if not lock.is_file():
+        raise RuntimeError(
+            f"missing {lock}; run 'npm ci' with the brokers lockfile first"
+        )
     npm = which("npm") or which("npm.cmd")
     if not npm:
-        raise RuntimeError("npm not found; cannot install pinned aedes")
+        raise RuntimeError("npm not found; cannot install pinned aedes (npm ci)")
+    dest.mkdir(parents=True, exist_ok=True)
+    for name in ("package.json", "package-lock.json", "aedes_server.js"):
+        src = BROKERS / name
+        (dest / name).write_bytes(src.read_bytes())
     subprocess.check_call(
-        [npm, "install", "--no-fund", "--no-audit"],
-        cwd=str(BROKERS),
+        [npm, "ci", "--no-fund", "--no-audit"],
+        cwd=str(dest),
     )
+    if not marker.is_file():
+        raise RuntimeError("npm ci did not install aedes")
+    json.loads(marker.read_text(encoding="utf-8"))  # validate readable JSON
+    return dest
 
 
 def start_aedes(workdir: Path) -> BrokerProc:
-    ensure_aedes_installed()
     node = which("node") or which("node.exe")
     if not node:
         raise RuntimeError("node not found on PATH")
-    version = json.loads((BROKERS / "node_modules" / "aedes" / "package.json").read_text())[
-        "version"
-    ]
+    install = aedes_install_dir(workdir)
+    aedes_pkg = install / "node_modules" / "aedes" / "package.json"
+    try:
+        version = json.loads(aedes_pkg.read_text(encoding="utf-8"))["version"]
+    except (OSError, json.JSONDecodeError, KeyError):
+        version = json.loads((BROKERS / "package.json").read_text(encoding="utf-8"))[
+            "dependencies"
+        ]["aedes"]
     port = free_port()
     conf_hash = sha256_file(BROKERS / "aedes_server.js")
     log_path = workdir / "aedes.log"
     logf = open(log_path, "wb")
     proc = subprocess.Popen(
-        [node, str(BROKERS / "aedes_server.js"), str(port)],
+        [node, str(install / "aedes_server.js"), str(port)],
         stdout=subprocess.PIPE,
         stderr=logf,
-        cwd=str(BROKERS),
+        cwd=str(install),
     )
     assert proc.stdout is not None
     deadline = time.monotonic() + 5.0
@@ -285,11 +303,41 @@ def main() -> int:
 
     wanted = [b.strip() for b in args.brokers.split(",") if b.strip()]
     results: List[Dict] = []
+
+    def cmd_version(argv: List[str]) -> str:
+        try:
+            out = subprocess.run(
+                argv,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                check=False,
+            )
+            line = (out.stdout or "").strip().splitlines()
+            return line[0] if line else "unknown"
+        except OSError:
+            return "unknown"
+
+    goose_ver = cmd_version([goose, "version"])
     meta = {
-        "honkmqtt_root": str(ROOT),
+        "repo_paths": {
+            "session": "examples/tcp/session.goose",
+            "bridge": "examples/tcp/bridge.py",
+            "stream": "examples/stream/stream.goose",
+            "brokers": "examples/tcp/brokers",
+        },
         "session_sha256": sha256_file(SESSION),
         "bridge_sha256": sha256_file(BRIDGE),
         "stream_sha256": sha256_file(ROOT / "examples" / "stream" / "stream.goose"),
+        "toolchain": {
+            "python": sys.version.split()[0],
+            "python_implementation": sys.version.split("\n")[0],
+            "node": cmd_version(["node", "--version"]),
+            "npm": cmd_version(["npm", "--version"]),
+            "goose": goose_ver,
+            "os_uname": " ".join(os.uname()) if hasattr(os, "uname") else sys.platform,
+            "platform": sys.platform,
+        },
         "bounds": {
             "rx_cap": 256,
             "tx_cap": 256,
@@ -308,10 +356,14 @@ def main() -> int:
             "stream::enqueue/drain/commit_tx plus typed codecs. Python does not "
             "frame MQTT. Core honkmqtt.goose unchanged."
         ),
-        "broker_service_note": (
-            "apt mosquitto postinst may enable systemd mosquitto.service; this "
-            "harness stops/disables that unit and uses only ephemeral 127.0.0.1 "
-            "listeners with TemporaryDirectory cleanup."
+        "broker_listeners": (
+            "Harness starts only ephemeral 127.0.0.1 Mosquitto/Aedes children "
+            "in a TemporaryDirectory (cleaned up on exit). It does not stop, "
+            "disable, or manage any system mosquitto.service unit."
+        ),
+        "aedes_install": (
+            "npm ci --no-fund --no-audit from brokers/package-lock.json into a "
+            "native temp directory (avoids corrupted node_modules on /mnt/c)"
         ),
     }
 

@@ -1,9 +1,23 @@
 {
   "meta": {
-    "honkmqtt_root": "/mnt/c/Users/x4g4p/.ao/data/worktrees/honkmqtt/honkmqtt-2",
+    "repo_paths": {
+      "session": "examples/tcp/session.goose",
+      "bridge": "examples/tcp/bridge.py",
+      "stream": "examples/stream/stream.goose",
+      "brokers": "examples/tcp/brokers"
+    },
     "session_sha256": "402afb88111c0271886b2687e3701920f7708bc004a4558b54c80c7c2fbd2e4c",
     "bridge_sha256": "1d162a20cd8430505f7cb060f99a5b7c2437ce9d1c1175a2178098dcc64c81f5",
     "stream_sha256": "5eaa10314d98df22f761017a656bd353745deb3970e41005914964630c5b1f15",
+    "toolchain": {
+      "python": "3.12.3",
+      "python_implementation": "3.12.3 (main, Jul 15 2026, 23:46:41) [GCC 13.3.0]",
+      "node": "v18.19.1",
+      "npm": "9.2.0",
+      "goose": "goose v2026.4 (runtime dce889723a23)",
+      "os_uname": "Linux MartinPC 6.18.58.1-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Tue Oct 27 00:24:11 UTC 2026 x86_64",
+      "platform": "linux"
+    },
     "bounds": {
       "rx_cap": 256,
       "tx_cap": 256,
@@ -17,13 +31,14 @@
       "send_ack": "socket.send byte count; Goose commit_tx(exact)"
     },
     "architecture": "Python TCP bridge moves bounded socket chunks and returns actual send() counts; Goose applies stream::feed/frame/commit_rx and stream::enqueue/drain/commit_tx plus typed codecs. Python does not frame MQTT. Core honkmqtt.goose unchanged.",
-    "broker_service_note": "apt mosquitto postinst may enable systemd mosquitto.service; this harness stops/disables that unit and uses only ephemeral 127.0.0.1 listeners with TemporaryDirectory cleanup."
+    "broker_listeners": "Harness starts only ephemeral 127.0.0.1 Mosquitto/Aedes children in a TemporaryDirectory (cleaned up on exit). It does not stop, disable, or manage any system mosquitto.service unit.",
+    "aedes_install": "npm ci --no-fund --no-audit from brokers/package-lock.json into a native temp directory (avoids corrupted node_modules on /mnt/c)"
   },
   "results": [
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "baa92eae6ee88e5dedd44605353870815781c21e44c9693a94a31285859ac5f1",
+      "broker_conf_sha256": "c5d6834782e02f6a6a777bf1c1e911986db574c8d7385349e9b087c8f0fc5196",
       "scenario": "positive",
       "client_id": "honk-m3-mosquitto-positive",
       "ok": true,
@@ -45,7 +60,7 @@
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "baa92eae6ee88e5dedd44605353870815781c21e44c9693a94a31285859ac5f1",
+      "broker_conf_sha256": "c5d6834782e02f6a6a777bf1c1e911986db574c8d7385349e9b087c8f0fc5196",
       "scenario": "malformed",
       "client_id": "honk-m3-mosquitto-malformed",
       "ok": true,
@@ -66,7 +81,7 @@
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "baa92eae6ee88e5dedd44605353870815781c21e44c9693a94a31285859ac5f1",
+      "broker_conf_sha256": "c5d6834782e02f6a6a777bf1c1e911986db574c8d7385349e9b087c8f0fc5196",
       "scenario": "reconnect",
       "client_id": "honk-m3-mosquitto-reconnect",
       "ok": true,
@@ -87,7 +102,7 @@
     {
       "broker": "aedes",
       "broker_version": "0.51.3",
-      "broker_conf_sha256": "819b586d1f34113f30a9a49f700a475e8e0ab4dfd62b9e2bacadf5b9f50a6f3d",
+      "broker_conf_sha256": "3192fa1103cffdab69d8848d1b04e5edafc0f5b5de80e2f713f914ab5152b688",
       "scenario": "positive",
       "client_id": "honk-m3-aedes-positive",
       "ok": true,
@@ -109,7 +124,7 @@
     {
       "broker": "aedes",
       "broker_version": "0.51.3",
-      "broker_conf_sha256": "819b586d1f34113f30a9a49f700a475e8e0ab4dfd62b9e2bacadf5b9f50a6f3d",
+      "broker_conf_sha256": "3192fa1103cffdab69d8848d1b04e5edafc0f5b5de80e2f713f914ab5152b688",
       "scenario": "malformed",
       "client_id": "honk-m3-aedes-malformed",
       "ok": true,
@@ -130,7 +145,7 @@
     {
       "broker": "aedes",
       "broker_version": "0.51.3",
-      "broker_conf_sha256": "819b586d1f34113f30a9a49f700a475e8e0ab4dfd62b9e2bacadf5b9f50a6f3d",
+      "broker_conf_sha256": "3192fa1103cffdab69d8848d1b04e5edafc0f5b5de80e2f713f914ab5152b688",
       "scenario": "reconnect",
       "client_id": "honk-m3-aedes-reconnect",
       "ok": true,

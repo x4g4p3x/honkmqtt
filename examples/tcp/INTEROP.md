@@ -40,30 +40,45 @@ This is interoperability evidence, not certification or a stable network stack.
 | Component | Version / note |
 |-----------|----------------|
 | Eclipse Mosquitto | **2.0.18** (`2.0.18-1build3`, apt) |
-| Aedes | **0.51.3** (pinned in `brokers/package.json` + lockfile) |
-| Node (WSL) | v18.19.1 (Linux; do not mix Windows `node.exe` with WSL loopback) |
-| Goose | v2026.4 |
-| Python | 3.x |
+| Aedes | **0.51.3** (pinned in `brokers/package.json` + `package-lock.json`) |
+| Python | **3.12.3** (`3.12.3 (main, Jul 15 2026, 23:46:41) [GCC 13.3.0]`) |
+| Node | **v18.19.1** |
+| npm | **9.2.0** |
+| Goose | **goose v2026.4 (runtime dce889723a23)** |
+| OS | **Linux … WSL2 x86_64** (`meta.toolchain.os_uname` in JSON) |
 
-**System Mosquitto service:** `apt install mosquitto` postinst enabled
-`mosquitto.service`. This task **stopped and disabled** that unit so only
-harness-owned ephemeral `127.0.0.1` listeners run (`mosquitto -c` / Aedes child
-in a `TemporaryDirectory`, cleaned up on exit). Unrelated processes were left
-alone. Confirm: `systemctl is-enabled/is-active mosquitto` → `disabled` /
-`inactive`.
+Exact strings for the committed run are also in
+`examples/tcp/interop_results.json` → `meta.toolchain`.
+
+**Historical note (this development machine only):** installing Mosquitto via
+`apt` enabled `mosquitto.service` through the package postinst. The worker that
+set up this environment **stopped and disabled that newly installed system
+unit** so it would not compete on port 1883. Ephemeral harness listeners do
+**not** require stopping or disabling a system broker; the runner never manages
+`systemd` units. Leave any pre-existing Mosquitto install as you found it.
 
 Ephemeral Mosquitto config from `brokers/mosquitto.conf.in` (template SHA-256
 `897c76cfb87479d96d67651116d914a83a2b686b2c71b308ce85247cd4973c3b`); runtime
-file substitutes `@PORT@`. Aedes entrypoint SHA-256
-`819b586d1f34113f30a9a49f700a475e8e0ab4dfd62b9e2bacadf5b9f50a6f3d`.
+file substitutes `@PORT@`. Aedes entrypoint SHA-256 is recorded per run in
+`interop_results.json` (`broker_conf_sha256` for aedes rows).
 
 ## Reproduction
 
 ```bash
 # WSL/Linux: goose, python3, mosquitto, node+npm on PATH
-systemctl stop mosquitto 2>/dev/null; systemctl disable mosquitto 2>/dev/null
-cd examples/tcp/brokers && npm install --no-fund --no-audit && cd ../../..
+# Ephemeral ports: no need to stop/disable a system mosquitto service.
 python3 examples/tcp/run_interop.py --goose goose --json-out examples/tcp/interop_results.json
+```
+
+The runner copies `brokers/package.json`, `package-lock.json`, and
+`aedes_server.js` into a native temp directory and runs
+`npm ci --no-fund --no-audit` there (avoids truncated `node_modules` on
+`/mnt/c`). To pre-warm the same lockfile install yourself:
+
+```bash
+TMP=$(mktemp -d) && cp examples/tcp/brokers/package.json \
+  examples/tcp/brokers/package-lock.json examples/tcp/brokers/aedes_server.js "$TMP"/ \
+  && (cd "$TMP" && npm ci --no-fund --no-audit)
 ```
 
 ## Case matrix (recorded after acceptance fixes)
@@ -87,6 +102,9 @@ before close; then **same client-id reconnect** (CONNACK/PING/DISCONNECT).
 Both brokers closed with **EOF** in this run (no RESET/TIMEOUT observed).
 
 **reconnect:** graceful DISCONNECT then fresh TCP + same client id.
+
+Source hashes for the committed run: see `meta.session_sha256`,
+`meta.bridge_sha256`, and `meta.stream_sha256` in `interop_results.json`.
 
 ## Limitations
 
