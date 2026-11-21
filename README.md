@@ -212,10 +212,16 @@ not a socket stack or stable core API):
   `rx_capacity_for(max_body)` (rejects out-of-range `max_body`). TX capacity
   bounds queued outbound bytes before `enqueue` returns `NO_SPACE`.
 - **Cursors:** pending bytes are `buf[start..end)`. `commit_rx` / `commit_tx`
-  advance `start` only (no per-write memmove). `compact` runs inside
-  `feed`/`enqueue` only when the tail is full but headroom exists at the front.
-- **Non-overlap:** `feed` source must not overlap the RX write range
-  `rx[end..)`; `enqueue` packet must not overlap `tx[end..)`.
+  advance `start` only (no per-write memmove). `compact` slides pending bytes
+  to index 0 inside `feed` when `end == capacity` but `start > 0`, and inside
+  `enqueue` whenever the packet does not fit in the remaining tail
+  (`packet.len > capacity - end`) even if unused tail bytes remain, provided
+  total free capacity can hold it.
+- **Non-overlap:** `feed` `src` must be disjoint from the entire RX buffer;
+  `enqueue` `packet` must be disjoint from the entire TX buffer. Compaction
+  may overwrite the consumed head (`buf[0..start)`) before reading the source,
+  so a view into that region is unsafe even when it does not overlap the
+  eventual append range.
 - **Frame views:** `rx[start..end)` is valid only until the next
   `feed`/`commit_rx`/`compact` that changes cursors or moves bytes—finish
   parsing or copy first.

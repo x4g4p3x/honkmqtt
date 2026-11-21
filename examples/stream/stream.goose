@@ -7,11 +7,16 @@ namespace stream;
 //
 // Cursors: pending bytes are buf[start..end). Appends write at `end`.
 // `commit_*` advances `start` only (no per-write memmove). `compact` slides
-// pending bytes to index 0 only when feed/enqueue needs tail room.
+// pending bytes to index 0 when feed/enqueue needs more tail room: `feed`
+// only when `end == rx.len` but `start > 0`; `enqueue` whenever
+// `packet.len > tx.len - end` yet total free capacity can hold the packet
+// (even if some unused tail bytes remain).
 //
-// Non-overlap: `feed` source must not overlap the RX write range
-// `rx[end..end+taken)`; `enqueue` packet must not overlap the TX write range
-// `tx[end..end+packet.len)`.
+// Non-overlap: `src` for `feed` must be disjoint from the entire RX buffer
+// (not merely from `rx[end..)`), and `packet` for `enqueue` must be disjoint
+// from the entire TX buffer. Compaction may overwrite `buf[0..start)` before
+// reading the source, so a view into the consumed head can be corrupted even
+// when it does not overlap the eventual append range.
 //
 // RX frame views: `rx[start..end)` (and any slice into it) is valid only until
 // the next `feed`/`commit_rx`/`compact` that changes start/end or moves bytes.
@@ -55,7 +60,8 @@ fn compact(buf: u8[:], start: i64, end: i64) -> i64, i64, i64 {
 }
 
 // Append up to max_n bytes from src at `end`. Compacts first only if the tail
-// is full but pending bytes leave headroom. Returns (status, start, end, taken).
+// is full but pending bytes leave headroom. `src` must be disjoint from `rx`.
+// Returns (status, start, end, taken).
 fn feed(rx: u8[:], start: i64, end: i64, src: const u8[:], max_n: i64) -> i64, i64, i64, i64 {
     if start < 0 || end < start || end > rx.len || max_n < 0 { return INVALID, start, end, 0; }
     if max_n == 0 || src.len == 0 { return WAIT, start, end, 0; }
@@ -84,8 +90,10 @@ fn commit_rx(start: i64, end: i64, n: i64) -> i64, i64, i64 {
     return OK, start + n, end;
 }
 
-// Queue an entire packet at `end`, or take nothing. Compacts only when the
-// tail cannot hold `packet` but total free capacity can. Returns (status, start, end).
+// Queue an entire packet at `end`, or take nothing. Compacts when
+// `packet.len > tx.len - end` but total free capacity can hold it (unused
+// tail bytes may remain). `packet` must be disjoint from `tx`.
+// Returns (status, start, end).
 fn enqueue(tx: u8[:], start: i64, end: i64, packet: const u8[:]) -> i64, i64, i64 {
     if start < 0 || end < start || end > tx.len { return INVALID, start, end; }
     var s = start;
