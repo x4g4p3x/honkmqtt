@@ -1,0 +1,208 @@
+{
+  "meta": {
+    "repo_paths": {
+      "session": "examples/tcp/session.goose",
+      "bridge": "examples/tcp/bridge.py",
+      "stream": "examples/stream/stream.goose",
+      "brokers": "examples/tcp/brokers"
+    },
+    "session_sha256": "4c44a86643e3fe4d492cf8a1b7cf15678d295f58dd1d3438a89f164b96e74f59",
+    "bridge_sha256": "87c57dd743047ac29516bd2c55a384774d2a124f76761e6be7ef66a1fe7fbc4c",
+    "stream_sha256": "5eaa10314d98df22f761017a656bd353745deb3970e41005914964630c5b1f15",
+    "toolchain": {
+      "python": "3.12.3",
+      "python_implementation": "3.12.3 (main, Jul 15 2026, 23:46:41) [GCC 13.3.0]",
+      "node": "v18.19.1",
+      "npm": "9.2.0",
+      "goose": "goose v2026.4 (runtime dce889723a23)",
+      "os_uname": "Linux MartinPC 6.18.58.1-microsoft-standard-WSL2 #1 SMP PREEMPT_DYNAMIC Tue Oct 27 00:24:11 UTC 2026 x86_64",
+      "platform": "linux"
+    },
+    "bounds": {
+      "rx_cap": 256,
+      "tx_cap": 256,
+      "max_body": 251,
+      "recv_max": 64,
+      "recv_cap_rule": "min(64, rx_tail_free); compact when tail full; reset empty window at capacity",
+      "connect_deadline": "fail if remaining<=0; else min(2.0, remaining)",
+      "ipc_max": 512,
+      "connect_timeout_s": 2.0,
+      "io_timeout_s": 2.0,
+      "case_timeout_s": 15.0,
+      "send_ack": "socket.send byte count; Goose commit_tx(exact)"
+    },
+    "architecture": "Python TCP bridge moves bounded socket chunks and returns actual send() counts; Goose applies stream::feed/frame/commit_rx and stream::enqueue/drain/commit_tx plus typed codecs. Python does not frame MQTT. Core honkmqtt.goose unchanged.",
+    "broker_listeners": "Harness starts only ephemeral 127.0.0.1 Mosquitto/Aedes children in a TemporaryDirectory (cleaned up on exit). It does not stop, disable, or manage any system mosquitto.service unit.",
+    "aedes_install": "npm ci --no-fund --no-audit from brokers/package-lock.json into an owned TemporaryDirectory (optional HONKMQTT_AEDES_NPM parent only); listen 127.0.0.1:0 and read bounded AEDES_READY <port> banner",
+    "mosquitto_provenance": {
+      "method": "apt-get download + dpkg-deb -x (no dpkg -i; system unit untouched)",
+      "requested_pin": "2.0.18-1build3",
+      "note": "downloaded mosquitto=2.0.18-1build3",
+      "deb_file": "mosquitto_2.0.18-1build3_amd64.deb",
+      "deb_sha256": "aa0c041d847a20ba4bc15110e87e6c848a478856d8f6c6bb04610618cfa173ea",
+      "extract_root": "/tmp/honkmqtt-m3-s75arow9/mosquitto_pkg/root",
+      "binary": "/tmp/honkmqtt-m3-s75arow9/mosquitto_pkg/root/usr/sbin/mosquitto",
+      "path_prepend": "/tmp/honkmqtt-m3-s75arow9/mosquitto_pkg/root/usr/sbin",
+      "download_command": "apt-get download mosquitto=2.0.18-1build3",
+      "extract_command": "dpkg-deb -x /tmp/honkmqtt-m3-s75arow9/mosquitto_pkg/deb/mosquitto_2.0.18-1build3_amd64.deb /tmp/honkmqtt-m3-s75arow9/mosquitto_pkg/root",
+      "runtime": {
+        "depends": "adduser (>= 3.10), libcjson1 (>= 1.7.13), libmosquitto1 (= 2.0.18-1build3), sysvinit-utils (>= 3.06), libc6 (>= 2.38), libdlt2 (>= 2.18.10), libssl3t64 (>= 3.0.0), libsystemd0, libwebsockets19t64 (>= 1.6.0), libwrap0 (>= 7.6-4~)",
+        "ldd": "linux-vdso.so.1 (0x00007eee68751000)\n\tlibwrap.so.0 => /lib/x86_64-linux-gnu/libwrap.so.0 (0x00007eee686e4000)\n\tlibsystemd.so.0 => /lib/x86_64-linux-gnu/libsystemd.so.0 (0x00007eee68604000)\n\tlibdlt.so.2 => /lib/x86_64-linux-gnu/libdlt.so.2 (0x00007eee685d9000)\n\tlibssl.so.3 => /lib/x86_64-linux-gnu/libssl.so.3 (0x00007eee6852f000)\n\tlibcrypto.so.3 => /lib/x86_64-linux-gnu/libcrypto.so.3 (0x00007eee68000000)\n\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007eee67f17000)\n\tlibwebsockets.so.19 => /lib/x86_64-linux-gnu/libwebsockets.so.19 (0x00007eee67e9e000)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007eee67c00000)\n\tlibcap.so.2 => /lib/x86_64-linux-gnu/libcap.so.2 (0x00007eee68520000)\n\tlibgcrypt.so.20 => /lib/x86_64-linux-gnu/libgcrypt.so.20 (0x00007eee67ab7000)\n\tliblz4.so.1 => /lib/x86_64-linux-gnu/liblz4.so.1 (0x00007eee67e7c000)\n\tliblzma.so.5 => /lib/x86_64-linux-gnu/liblzma.so.5 (0x00007eee67e4a000)\n\tlibzstd.so.1 => /lib/x86_64-linux-gnu/libzstd.so.1 (0x00007eee679fd000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007eee68753000)\n\tlibz.so.1 => /lib/x86_64-linux-gnu/libz.so.1 (0x00007eee67e2e000)\n\tlibgpg-error.so.0 => /lib/x86_64-linux-gnu/libgpg-error.so.0 (0x00007eee679d8000)",
+        "missing_shared_libs": [],
+        "host_runtime_packages_ubuntu_24_04": [
+          "libc6",
+          "libdlt2",
+          "libssl3t64",
+          "libsystemd0",
+          "libwebsockets19t64",
+          "libwrap0"
+        ],
+        "host_runtime_note": "Install these shared-library packages on a clean Ubuntu 24.04 host to run an extracted mosquitto binary. Do not apt-install the mosquitto package itself if you want to avoid enabling mosquitto.service.",
+        "ok": true
+      }
+    },
+    "aedes_provenance": {
+      "method": "npm ci into owned TemporaryDirectory",
+      "parent": "/tmp/tmp.g4xrkTqPaY",
+      "install_dir": "/tmp/tmp.g4xrkTqPaY/honkmqtt-aedes-kjrvoujy",
+      "package_json": "examples/tcp/brokers/package.json",
+      "package_lock": "examples/tcp/brokers/package-lock.json",
+      "aedes_server": "examples/tcp/brokers/aedes_server.js",
+      "command": "/usr/bin/npm ci --no-fund --no-audit",
+      "aedes_version": "0.51.3",
+      "lock_sha256": "c5a128d79a945a0cfbc3370f9de4353a8c79ce02aab502124e7bbaf5a5a726a1",
+      "server_sha256": "3192fa1103cffdab69d8848d1b04e5edafc0f5b5de80e2f713f914ab5152b688"
+    }
+  },
+  "results": [
+    {
+      "broker": "mosquitto",
+      "broker_version": "2.0.18",
+      "broker_conf_sha256": "c96338720190349d6dfd79984761cab2a392cd7837dfbf0797eb395c31682bc3",
+      "scenario": "positive",
+      "client_id": "honk-m3-mosquitto-positive",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "BOUNDS rx=256 tx=256 max_body=251 recv_max=64 ipc_max=512",
+        "BRIDGE_MODEL send_ack=socket.send_count recv_cap=min(64,rx_tail_free)",
+        "CONNACK session=0 code=0",
+        "SUBACK id=7 code=0",
+        "PUBLISH qos0 sent",
+        "PUBLISH verified topic=m3/t payload=hi!",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    },
+    {
+      "broker": "mosquitto",
+      "broker_version": "2.0.18",
+      "broker_conf_sha256": "c96338720190349d6dfd79984761cab2a392cd7837dfbf0797eb395c31682bc3",
+      "scenario": "malformed",
+      "client_id": "honk-m3-mosquitto-malformed",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "MALFORMED sent type=0",
+        "PEER_CLOSE reason=EOF",
+        "RECONNECTED after malformed",
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": "EOF",
+      "stderr": ""
+    },
+    {
+      "broker": "mosquitto",
+      "broker_version": "2.0.18",
+      "broker_conf_sha256": "c96338720190349d6dfd79984761cab2a392cd7837dfbf0797eb395c31682bc3",
+      "scenario": "reconnect",
+      "client_id": "honk-m3-mosquitto-reconnect",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent",
+        "RECONNECTED",
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    },
+    {
+      "broker": "aedes",
+      "broker_version": "0.51.3",
+      "broker_conf_sha256": "3192fa1103cffdab69d8848d1b04e5edafc0f5b5de80e2f713f914ab5152b688",
+      "scenario": "positive",
+      "client_id": "honk-m3-aedes-positive",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "BOUNDS rx=256 tx=256 max_body=251 recv_max=64 ipc_max=512",
+        "BRIDGE_MODEL send_ack=socket.send_count recv_cap=min(64,rx_tail_free)",
+        "CONNACK session=0 code=0",
+        "SUBACK id=7 code=0",
+        "PUBLISH qos0 sent",
+        "PUBLISH verified topic=m3/t payload=hi!",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    },
+    {
+      "broker": "aedes",
+      "broker_version": "0.51.3",
+      "broker_conf_sha256": "3192fa1103cffdab69d8848d1b04e5edafc0f5b5de80e2f713f914ab5152b688",
+      "scenario": "malformed",
+      "client_id": "honk-m3-aedes-malformed",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "MALFORMED sent type=0",
+        "PEER_CLOSE reason=EOF",
+        "RECONNECTED after malformed",
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": "EOF",
+      "stderr": ""
+    },
+    {
+      "broker": "aedes",
+      "broker_version": "0.51.3",
+      "broker_conf_sha256": "3192fa1103cffdab69d8848d1b04e5edafc0f5b5de80e2f713f914ab5152b688",
+      "scenario": "reconnect",
+      "client_id": "honk-m3-aedes-reconnect",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent",
+        "RECONNECTED",
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    }
+  ],
+  "failed": 0
+}
