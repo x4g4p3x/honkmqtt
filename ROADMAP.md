@@ -158,7 +158,13 @@ security claim; main tip updates when this slice merges).
   `encode_suback` with `SUBACK_*` constants in `honkmqtt.goose`; independent
   vectors in `tests/subscribe.goose`; API matrix; README. Structural only—no
   SUBSCRIBE↔SUBACK pairing, granted-vs-requested policy, or session state.
-- [ ] UNSUBSCRIBE/UNSUBACK
+- [x] UNSUBSCRIBE/UNSUBACK parse and encode (Packet Identifier + ordered Topic
+  Filter list without QoS bytes, or fixed 4-byte acknowledgement; OASIS MQTT
+  3.1.1 §§2.2–2.3.1, 3.10–3.11, 4.7). Evidence: `unsubscribe` /
+  `encode_unsubscribe` / `unsubscribe_next` and `unsuback` /
+  `encode_unsuback` in `honkmqtt.goose`; independent vectors in
+  `tests/unsubscribe.goose`; API matrix; README. Structural only—no
+  UNSUBSCRIBE↔UNSUBACK pairing or session state.
 - [ ] PINGREQ/PINGRESP (typed helpers; opaque `encode`/`frame` already cover
   the 2-byte empty forms structurally)
 - [ ] DISCONNECT

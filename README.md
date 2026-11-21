@@ -26,10 +26,15 @@ This is an early foundation, **not a complete MQTT client or a complete MQTT 3.1
 - Parsing and encoding MQTT 3.1.1 SUBSCRIBE / SUBACK (`subscribe` /
   `encode_subscribe`, `suback` / `encode_suback`), including Packet Identifier
   and ordered Topic Filter / QoS or return-code lists.
+- Parsing and encoding MQTT 3.1.1 UNSUBSCRIBE / UNSUBACK (`unsubscribe` /
+  `encode_unsubscribe`, `unsuback` / `encode_unsuback`), including Packet
+  Identifier and ordered Topic Filter lists (no QoS byte) or the fixed
+  acknowledgement.
 - UTF-8 and topic name/filter checks, including wildcard matching and the `$` topic rule.
 
-It does **not** parse or validate remaining control-packet bodies (UNSUBSCRIBE,
-…), validate application payloads, implement QoS/session state, perform
+It does **not** parse or validate remaining control-packet bodies (PINGREQ /
+PINGRESP typed helpers, DISCONNECT, …), validate application payloads,
+implement QoS/session state, perform
 network I/O, support MQTT 5 properties, or claim protocol conformance.
 It rejects non-minimal remaining-length encodings. Applications must validate
 other packet bodies before acting on untrusted data. The UTF-8 checks enforce
@@ -37,7 +42,7 @@ well-formed Unicode scalar values and exclude U+0000; they do not reject
 additional code points discouraged by MQTT. Do not use this as a security
 boundary or production MQTT implementation yet.
 
-The fixed-header and frame functions accept `const u8[:]` and return status codes; `frame` reports how many bytes to consume only on success. Keep incomplete input in your own bounded buffer and retry after receiving more data. Supply a maximum permitted body size to `frame` to limit buffering. `encode` and `encode_publish` require non-overlapping caller-owned output buffers; `encode_pubresp`, `encode_connack`, `encode_connect`, `encode_subscribe`, and `encode_suback` also write into a caller-owned `out`. The library never owns the transport.
+The fixed-header and frame functions accept `const u8[:]` and return status codes; `frame` reports how many bytes to consume only on success. Keep incomplete input in your own bounded buffer and retry after receiving more data. Supply a maximum permitted body size to `frame` to limit buffering. `encode` and `encode_publish` require non-overlapping caller-owned output buffers; `encode_pubresp`, `encode_connack`, `encode_connect`, `encode_subscribe`, `encode_suback`, `encode_unsubscribe`, and `encode_unsuback` also write into a caller-owned `out`. The library never owns the transport.
 
 `publish(input, max_body)` accepts a complete or partial MQTT 3.1.1 PUBLISH
 frame and returns `(status, consumed, topic_offset, topic_length,
@@ -150,6 +155,31 @@ and requires that `codes` and `out` must not overlap.
 Both encoders leave `out` unchanged on `INVALID` / `NO_SPACE`
 (`INVALID` before capacity).
 
+`unsubscribe(input, max_body)` parses one UNSUBSCRIBE (OASIS MQTT 3.1.1
+§§2.2–2.3.1, 3.10, 4.7) and returns `(status, consumed, packet_id, list_off,
+list_len)`. Fixed flags must be `0xa2`; Remaining Length at least
+`UNSUBSCRIBE_MIN_REMAINING` (5) is checked after a complete header and before
+body availability. Packet Identifier must be nonzero. The payload list is
+`input[list_off..list_off + list_len]` and must contain at least one Topic
+Filter; walk entries with `unsubscribe_next(input, pos, end)`. Filters use
+`valid_filter`. There is no Requested QoS byte. Duplicates are accepted
+structurally. Pairing with UNSUBACK and session behavior are out of scope.
+`encode_unsubscribe(packet_id, list, out)` takes a **pre-encoded** Topic Filter
+list blob (same layout as the payload), validates it before the first write
+(including an early `list.len > MAX_REMAINING-2` guard), and requires that
+`list` and `out` must not overlap.
+
+`unsuback(input)` parses one UNSUBACK (§3.11) and returns
+`(status, consumed, packet_identifier)`. A successful packet is always four
+bytes with Remaining Length 2 and a nonzero Packet Identifier; fixed header
+`0xb0`. Status precedence aligns with `pubresp` (header first; wrong type or
+Remaining Length ≠ 2 is `INVALID` even if the body has not arrived once the
+header is complete; then missing body is `INCOMPLETE`; then zero identifier is
+`INVALID`). Trailing bytes after a complete packet are left unconsumed.
+`encode_unsuback(packet_id, out)` writes those four bytes (`INVALID` for id
+not in 1..65535; then `NO_SPACE` if `out` is shorter than 4) and leaves `out`
+unchanged on every error. This is structural only—not request/ack pairing.
+
 ## Use
 
 Install [Goose](https://github.com/aardappel/goose) v2026.4 or newer. Pin a commit or release tag when consuming this pre-release library. For local development:
@@ -175,7 +205,8 @@ python scripts/test.py --native --require-native
 `scripts/test.py` is the single repeatable test entry point. It runs
 `tests/test.goose`, `tests/publish.goose`, `tests/publish_encode.goose`,
 `tests/pubresp.goose`, `tests/connack.goose`, `tests/connect.goose`,
-`tests/subscribe.goose`, `tests/coverage.goose`, `tests/api.goose`, and
+`tests/subscribe.goose`, `tests/unsubscribe.goose`, `tests/coverage.goose`,
+`tests/api.goose`, and
 `tests/fuzz.goose` in the Goose in-process runner, both normally and with
 `--debug`. With `--native` it also `goose build`s and executes those programs
 when `goose toolchain` reports a C compiler; `--require-native` fails if that
@@ -188,7 +219,8 @@ for those regression checks. Individual `goose tests/...` and
 `tests/api.goose` is the behavioral matrix for every public operation and its
 documented failure statuses (`header`/`frame`/`encode`/`encode_publish`/
 `publish`/`pubresp`/`encode_pubresp`/`connack`/`encode_connack`/`connect`/
-`encode_connect`/`subscribe`/`encode_subscribe`/`suback`/`encode_suback` and
+`encode_connect`/`subscribe`/`encode_subscribe`/`suback`/`encode_suback`/
+`unsubscribe`/`encode_unsubscribe`/`unsuback`/`encode_unsuback` and
 the boolean UTF-8/topic/filter/`matches` contracts), including unchanged
 output on encode failures. `tests/publish_encode.goose` holds independent
 PUBLISH encode wire vectors and sentinel cases, including the 65535-byte topic
@@ -202,6 +234,9 @@ identity/level, flags, optionals, present-empty fields, structural Remaining
 Length bounds (12..327695), truncations, in-frame length errors, and sentinels.
 `tests/subscribe.goose` holds independent SUBSCRIBE/SUBACK vectors for multi
 entry lists, QoS/codes, truncations, malformed flags/IDs/filters, and
+sentinels. `tests/unsubscribe.goose` holds independent UNSUBSCRIBE/UNSUBACK
+vectors for multi-filter lists (wildcards, multi-byte UTF-8, order),
+truncations, malformed flags/IDs/filters, 65535-byte filter boundary, and
 sentinels. `tests/coverage.goose` remains a combinatorial flags/length exercise;
 it is **not** measured line coverage. Goose v2026.4 exposes no source-mapped
 coverage or instrumentation command in `goose help` / `goose help --man`, so

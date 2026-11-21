@@ -37,5 +37,16 @@ fn main() {
     assert(as_ == honkmqtt::OK && an == 5);
     let ks2, ku2, kid, _, _ = honkmqtt::suback(sa[0..an], 64);
     assert(ks2 == honkmqtt::OK && ku2 == an && kid == 1);
-    print("PINGREQ frame: ", size, " bytes; PUBLISH encoded: ", n, " bytes; PUBACK id=", rid, "; CONNACK rc=", rc, "; CONNECT id_len=", yl, "; SUBSCRIBE id=", pid);
+    var unsub_out: u8[16] = [0; 16];
+    let ulist: u8[3] = [0x00, 0x01, 0x61];
+    let us, un = honkmqtt::encode_unsubscribe(1, ulist, unsub_out);
+    assert(us == honkmqtt::OK && un == 7);
+    let ups, upu, upid, _, _ = honkmqtt::unsubscribe(unsub_out[0..un], 64);
+    assert(ups == honkmqtt::OK && upu == un && upid == 1);
+    var ua: u8[4] = [0; 4];
+    let uas, uan = honkmqtt::encode_unsuback(1, ua);
+    assert(uas == honkmqtt::OK && uan == 4);
+    let uaks, uaku, uakid = honkmqtt::unsuback(ua);
+    assert(uaks == honkmqtt::OK && uaku == 4 && uakid == 1);
+    print("PINGREQ frame: ", size, " bytes; PUBLISH encoded: ", n, " bytes; PUBACK id=", rid, "; CONNACK rc=", rc, "; CONNECT id_len=", yl, "; SUBSCRIBE id=", pid, "; UNSUBSCRIBE id=", upid);
 }

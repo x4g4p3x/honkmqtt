@@ -3,7 +3,8 @@
 
 By default this runs tests/test.goose, tests/publish.goose,
 tests/publish_encode.goose, tests/pubresp.goose, tests/connack.goose,
-tests/connect.goose, tests/subscribe.goose, tests/coverage.goose,
+tests/connect.goose, tests/subscribe.goose, tests/unsubscribe.goose,
+tests/coverage.goose,
 tests/api.goose, and tests/fuzz.goose in the in-process Goose runner, once
 normally and once with --debug. Pass --native to also goose build and execute
 each program when a C compiler is available; pass --require-native to fail if
@@ -36,6 +37,7 @@ TESTS = (
     Path("tests/connack.goose"),
     Path("tests/connect.goose"),
     Path("tests/subscribe.goose"),
+    Path("tests/unsubscribe.goose"),
     Path("tests/coverage.goose"),
     Path("tests/api.goose"),
     Path("tests/fuzz.goose"),
