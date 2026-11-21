@@ -205,6 +205,33 @@ fn rx_backpressure_and_compact() {
     assert(rx[0] == 3 && rx[1] == 4 && rx[2] == 9 && rx[3] == 8);
 }
 
+// TCP bridge must request ≤ free tail: with start>0 and end<len, feed without
+// compact accepts only rx.len-end bytes even if total free is larger.
+fn feed_free_tail_before_compact() {
+    var rx: u8[8] = [0; 8];
+    var s = 0;
+    var e = 0;
+    let f0, ns0, ne0, t0 = stream::feed(rx, s, e, [1, 2, 3, 4, 5, 6], 6);
+    assert(f0 == stream::OK && t0 == 6 && ns0 == 0 && ne0 == 6);
+    s = ns0;
+    e = ne0;
+    let _, s1, e1 = stream::commit_rx(s, e, 3);
+    s = s1;
+    e = e1;
+    assert(s == 3 && e == 6);
+    // Free tail = 2, total free = 5. Cap max_n to free tail (TCP policy).
+    let free_tail = rx.len - e;
+    assert(free_tail == 2);
+    let f2, ns2, ne2, t2 = stream::feed(rx, s, e, [7, 8, 9, 10, 11], free_tail);
+    assert(f2 == stream::OK && t2 == 2 && ns2 == 3 && ne2 == 8);
+    assert(rx[3] == 4 && rx[4] == 5 && rx[5] == 6 && rx[6] == 7 && rx[7] == 8);
+    // Now tail is full; compact then accept the rest.
+    let cs, ns3, ne3 = stream::compact(rx, ns2, ne2);
+    assert(cs == stream::OK && ns3 == 0 && ne3 == 5);
+    let f3, ns4, ne4, t3 = stream::feed(rx, ns3, ne3, [9, 10, 11], 3);
+    assert(f3 == stream::OK && t3 == 3 && ns4 == 0 && ne4 == 8);
+}
+
 fn short_writes_commit_only() {
     var tx: u8[TX_CAP] = [0; TX_CAP];
     fill(tx, 0xee);
@@ -301,6 +328,7 @@ fn main() {
     eof_incomplete_vs_complete();
     fatal_framing_stops();
     rx_backpressure_and_compact();
+    feed_free_tail_before_compact();
     short_writes_commit_only();
     enqueue_compact_with_partly_free_tail();
     print("Transport adapter tests passed");

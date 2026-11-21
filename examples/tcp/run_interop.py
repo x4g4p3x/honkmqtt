@@ -9,9 +9,11 @@ conformance or production security.
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
 import os
+import select
 import shutil
 import signal
 import socket
@@ -177,22 +179,56 @@ def start_aedes(workdir: Path) -> BrokerProc:
         stdout=subprocess.PIPE,
         stderr=logf,
         cwd=str(install),
+        bufsize=0,
     )
     assert proc.stdout is not None
     deadline = time.monotonic() + 5.0
     ready = False
-    while time.monotonic() < deadline:
-        line = proc.stdout.readline()
-        if not line:
-            break
-        text = line.decode("utf-8", errors="replace").strip()
-        if text.startswith("AEDES_READY"):
-            ready = True
-            break
-    if not ready:
-        proc.kill()
-        logf.close()
-        raise RuntimeError("aedes failed to become ready")
+    buf = bytearray()
+    fd = proc.stdout.fileno()
+    try:
+        while time.monotonic() < deadline and not ready:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            readable, _, _ = select.select([fd], [], [], left)
+            if not readable:
+                break
+            try:
+                chunk = os.read(fd, 256)
+            except OSError as exc:
+                if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                    continue
+                break
+            if not chunk:
+                break
+            buf.extend(chunk)
+            while b"\n" in buf:
+                line, _, rest = buf.partition(b"\n")
+                buf[:] = rest
+                text = line.decode("utf-8", errors="replace").strip()
+                if text.startswith("AEDES_READY"):
+                    ready = True
+                    break
+            if len(buf) > 4096:
+                break
+    finally:
+        if not ready:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+            try:
+                proc.wait(timeout=2)
+            except Exception:
+                pass
+            logf.close()
+            err = ""
+            try:
+                err = Path(log_path).read_text(encoding="utf-8", errors="replace")[:500]
+            except OSError:
+                pass
+            raise RuntimeError(f"aedes failed to become ready: {err}")
     wait_port("127.0.0.1", port)
     return BrokerProc("aedes", version, port, proc, conf_hash)
 
@@ -231,11 +267,8 @@ def run_case(
         elif line.startswith("EXIT "):
             exit_code = int(line[5:])
     ok = proc.returncode == 0 and exit_code == 0
-    if peer_close is None:
-        for e in events:
-            if e.startswith("PEER_CLOSE reason="):
-                peer_close = e.split("=", 1)[1]
-                break
+    # Bridge-observed close only (PEER_CLOSE line from bridge.py). Do not
+    # promote Goose EVENT strings — those can be emitted without a RECV.
     if scenario == "positive":
         needed = [
             "CONNACK session=0 code=0",
@@ -248,16 +281,14 @@ def run_case(
         ok = ok and all(any(e == n for e in events) for n in needed)
     elif scenario == "malformed":
         ok = ok and any(e.startswith("MALFORMED sent") for e in events)
-        # Confirmed peer closure must be EOF or RESET — never TIMEOUT/other.
+        # Require socket-observed close from the bridge, not event fallback.
         ok = ok and peer_close in ("EOF", "RESET")
         close_idxs = [
             i for i, e in enumerate(events) if e.startswith("PEER_CLOSE reason=")
         ]
         ok = ok and len(close_idxs) >= 1
-        if close_idxs:
-            reason = events[close_idxs[0]].split("=", 1)[-1]
-            ok = ok and reason in ("EOF", "RESET")
-            # No PINGRESP before the confirmed close (post-reconnect ping is OK).
+        if close_idxs and peer_close:
+            ok = ok and events[close_idxs[0]].endswith(peer_close)
             ok = ok and not any(
                 events[i].startswith("PINGRESP") for i in range(close_idxs[0])
             )
@@ -343,7 +374,7 @@ def main() -> int:
             "tx_cap": 256,
             "max_body": 251,
             "recv_max": 64,
-            "recv_cap_rule": "min(64, rx_free)",
+            "recv_cap_rule": "min(64, rx_tail_free); compact when tail full",
             "ipc_max": 512,
             "connect_timeout_s": 2.0,
             "io_timeout_s": 2.0,

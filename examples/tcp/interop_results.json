@@ -6,7 +6,7 @@
       "stream": "examples/stream/stream.goose",
       "brokers": "examples/tcp/brokers"
     },
-    "session_sha256": "402afb88111c0271886b2687e3701920f7708bc004a4558b54c80c7c2fbd2e4c",
+    "session_sha256": "6dc09002842fe72e43c882614467e52f9a0ec3329c631fc06f784ae757e74573",
     "bridge_sha256": "1d162a20cd8430505f7cb060f99a5b7c2437ce9d1c1175a2178098dcc64c81f5",
     "stream_sha256": "5eaa10314d98df22f761017a656bd353745deb3970e41005914964630c5b1f15",
     "toolchain": {
@@ -23,7 +23,7 @@
       "tx_cap": 256,
       "max_body": 251,
       "recv_max": 64,
-      "recv_cap_rule": "min(64, rx_free)",
+      "recv_cap_rule": "min(64, rx_tail_free); compact when tail full",
       "ipc_max": 512,
       "connect_timeout_s": 2.0,
       "io_timeout_s": 2.0,
@@ -38,7 +38,7 @@
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "c5d6834782e02f6a6a777bf1c1e911986db574c8d7385349e9b087c8f0fc5196",
+      "broker_conf_sha256": "8a16f2e5a3fafbe56343c4db3264e739ed7a742d13cb76f6c1363fef1ff99136",
       "scenario": "positive",
       "client_id": "honk-m3-mosquitto-positive",
       "ok": true,
@@ -46,7 +46,7 @@
       "goose_exit": 0,
       "events": [
         "BOUNDS rx=256 tx=256 max_body=251 recv_max=64 ipc_max=512",
-        "BRIDGE_MODEL send_ack=socket.send_count recv_cap=min(64,rx_free)",
+        "BRIDGE_MODEL send_ack=socket.send_count recv_cap=min(64,rx_tail_free)",
         "CONNACK session=0 code=0",
         "SUBACK id=7 code=0",
         "PUBLISH qos0 sent",
@@ -60,7 +60,7 @@
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "c5d6834782e02f6a6a777bf1c1e911986db574c8d7385349e9b087c8f0fc5196",
+      "broker_conf_sha256": "8a16f2e5a3fafbe56343c4db3264e739ed7a742d13cb76f6c1363fef1ff99136",
       "scenario": "malformed",
       "client_id": "honk-m3-mosquitto-malformed",
       "ok": true,
@@ -81,7 +81,7 @@
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "c5d6834782e02f6a6a777bf1c1e911986db574c8d7385349e9b087c8f0fc5196",
+      "broker_conf_sha256": "8a16f2e5a3fafbe56343c4db3264e739ed7a742d13cb76f6c1363fef1ff99136",
       "scenario": "reconnect",
       "client_id": "honk-m3-mosquitto-reconnect",
       "ok": true,
@@ -110,7 +110,7 @@
       "goose_exit": 0,
       "events": [
         "BOUNDS rx=256 tx=256 max_body=251 recv_max=64 ipc_max=512",
-        "BRIDGE_MODEL send_ack=socket.send_count recv_cap=min(64,rx_free)",
+        "BRIDGE_MODEL send_ack=socket.send_count recv_cap=min(64,rx_tail_free)",
         "CONNACK session=0 code=0",
         "SUBACK id=7 code=0",
         "PUBLISH qos0 sent",

@@ -28,7 +28,7 @@ This is interoperability evidence, not certification or a stable network stack.
 | RX capacity | 256 |
 | TX capacity | 256 |
 | `max_body` | 251 (`RX - HEADER_MAX`) |
-| Recv request | `min(64, RX free capacity)` |
+| Recv request | `min(64, free RX tail)`; compact when tail is full |
 | IPC payload max | 512 |
 | TCP connect timeout | 2.0 s (also capped by remaining case time) |
 | Socket I/O timeout | `min(2.0 s, remaining case time)` |

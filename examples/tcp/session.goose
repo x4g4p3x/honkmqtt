@@ -123,13 +123,10 @@ fn enqueue_packet(tx: u8[:], tx_s: i64&, tx_e: i64&, packet: const u8[:]) {
     flush_tx(tx, tx_s, tx_e);
 }
 
-fn rx_free(rx_len: i64, rx_s: i64, rx_e: i64) -> i64 {
-    // Bytes that can still be accepted after optional compact (total free).
-    let pending = rx_e - rx_s;
-    if pending < 0 { return 0; }
-    let free = rx_len - pending;
-    if free < 0 { return 0; }
-    return free;
+// feed() only compacts when end==len; never request more than free tail.
+fn rx_tail_free(rx_len: i64, rx_e: i64) -> i64 {
+    if rx_e < 0 || rx_e > rx_len { return 0; }
+    return rx_len - rx_e;
 }
 
 fn feed_socket(
@@ -138,24 +135,33 @@ fn feed_socket(
     rx_e:  i64&,
     chunk: u8[>..]&,
 ) -> i64 {
-    // 0=ok (DATA, maybe empty EOF), 1=peer err (chunk=reason)
-    let free = rx_free(rx.len, rx_s, rx_e);
-    var want = RECV_MAX;
-    if want > free { want = free; }
-    if want <= 0 {
-        // No RX window — caller must commit frames before feeding more.
-        chunk.clear();
-        return 0;
+    // 0=DATA after RECV (chunk empty ⇒ socket EOF), 1=ERR, 2=BACKPRESSURE (no RECV).
+    chunk.clear();
+    var tail = rx_tail_free(rx.len, rx_e);
+    if tail == 0 {
+        if rx_s > 0 && rx_e > rx_s {
+            // Reclaim headroom before the next short read.
+            let cs, ns, ne = stream::compact(rx, rx_s, rx_e);
+            if cs != stream::OK { fail("compact failed"); }
+            rx_s = ns;
+            rx_e = ne;
+            tail = rx_tail_free(rx.len, rx_e);
+        }
+        if tail == 0 {
+            return 2; // window full — caller must commit_rx or wait
+        }
     }
+    var want = RECV_MAX;
+    if want > tail { want = tail; }
     let r = socket_recv(want, chunk);
     if r == 1 { return 1; }
-    if chunk.len == 0 { return 0; }
+    if chunk.len == 0 { return 0; } // real EOF from bridge after RECV
     if chunk.len > want { fail("bridge exceeded recv cap"); }
     // Staging disjoint from rx (stream non-overlap contract).
     var staging: u8[RECV_MAX] = [0; RECV_MAX];
     for i in chunk.len { staging[i] = chunk[i]; }
     let st, ns, ne, taken = stream::feed(rx, rx_s, rx_e, staging[0..chunk.len], chunk.len);
-    if st == stream::WAIT { return 0; }
+    if st == stream::WAIT { return 2; }
     if st != stream::OK { fail("feed failed"); }
     rx_s = ns;
     rx_e = ne;
@@ -241,6 +247,7 @@ fn do_connect(
         if fs == honkmqtt::INVALID { fail("frame invalid during connack"); }
         let fr = feed_socket(rx, rx_s, rx_e, chunk);
         if fr == 1 { fail(chunk); }
+        if fr == 2 { continue; }
         if chunk.len == 0 { fail("EOF before CONNACK"); }
     }
 }
@@ -278,6 +285,7 @@ fn do_subscribe(
         if fs == honkmqtt::INVALID { fail("frame invalid during suback"); }
         let fr = feed_socket(rx, rx_s, rx_e, chunk);
         if fr == 1 { fail(chunk); }
+        if fr == 2 { continue; }
         if chunk.len == 0 { fail("EOF before SUBACK"); }
     }
 }
@@ -339,6 +347,7 @@ fn do_publish_exchange(
         if fs == honkmqtt::INVALID { fail("frame invalid during publish wait"); }
         let fr = feed_socket(rx, rx_s, rx_e, chunk);
         if fr == 1 { fail(chunk); }
+        if fr == 2 { continue; }
         if chunk.len == 0 { fail("EOF before PUBLISH echo"); }
     }
 }
@@ -385,6 +394,7 @@ fn do_ping(
         if fs == honkmqtt::INVALID { fail("frame invalid during pingresp"); }
         let fr = feed_socket(rx, rx_s, rx_e, chunk);
         if fr == 1 { fail(chunk); }
+        if fr == 2 { continue; }
         if chunk.len == 0 { fail("EOF before PINGRESP"); }
     }
 }
@@ -403,7 +413,8 @@ fn reason_is_eof_or_reset(reason: const u8[:]) -> bool {
     return false;
 }
 
-// Wait until peer closes. Accept only EOF/RESET. Reject TIMEOUT and PINGRESP.
+// Wait until peer closes. Accept only bridge-observed EOF/RESET (after RECV).
+// BACKPRESSURE is not EOF — free the window first. Reject TIMEOUT and PINGRESP.
 fn wait_peer_close(rx: u8[:], rx_s: i64&, rx_e: i64&, chunk: u8[>..]&) {
     loop {
         let fr = feed_socket(rx, rx_s, rx_e, chunk);
@@ -415,22 +426,27 @@ fn wait_peer_close(rx: u8[:], rx_s: i64&, rx_e: i64&, chunk: u8[>..]&) {
             emit_event(line);
             return;
         }
-        if chunk.len == 0 {
+        if fr == 0 && chunk.len == 0 {
+            // Empty DATA after a real RECV — socket EOF confirmed by bridge.
             emit_event("PEER_CLOSE reason=EOF");
             return;
         }
+        // fr==2 (backpressure) or fr==0 with bytes: try to free/parse RX.
         let fs, used = honkmqtt::frame(rx[rx_s..rx_e], MAX_BODY);
         if fs == honkmqtt::OK {
             let view = rx[rx_s..rx_s + used];
             let pr, _ = honkmqtt::pingresp(view);
             if pr == honkmqtt::OK { fail("unexpected PINGRESP after malformed"); }
-            // Discard other complete frames without treating as success path.
             let _, ns, ne = stream::commit_rx(rx_s, rx_e, used);
             rx_s = ns;
             rx_e = ne;
             emit_event("RX frame discarded awaiting close");
         } else if fs == honkmqtt::INVALID {
             emit_event("RX_INVALID retained");
+            if fr == 2 { fail("RX full with INVALID while awaiting close"); }
+        } else if fr == 2 {
+            // Incomplete frame filling the window — cannot make progress.
+            fail("RX backpressure with incomplete frame awaiting close");
         }
     }
 }
@@ -452,7 +468,7 @@ fn run_positive(client_id: const u8[:]) {
     var chunk: u8[>..] = [];
 
     emit_event("BOUNDS rx=256 tx=256 max_body=251 recv_max=64 ipc_max=512");
-    emit_event("BRIDGE_MODEL send_ack=socket.send_count recv_cap=min(64,rx_free)");
+    emit_event("BRIDGE_MODEL send_ack=socket.send_count recv_cap=min(64,rx_tail_free)");
     do_connect(rx, rx_s, rx_e, tx, tx_s, tx_e, client_id, chunk);
     do_subscribe(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk);
     do_publish_exchange(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk);
