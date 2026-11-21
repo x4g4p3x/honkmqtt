@@ -79,6 +79,8 @@ AEDES_READY_RE = re.compile(r"^AEDES_READY ([1-9][0-9]{0,4})$")
 MOSQ_LISTEN_RE = re.compile(
     r"Opening ipv4 listen socket on port ([1-9][0-9]{0,4})\."
 )
+# Emitted only after listen succeeds; "Opening …" alone is pre-bind.
+MOSQ_RUNNING_RE = re.compile(r"mosquitto version \S+ running")
 # Shared libraries needed to run an extracted Mosquitto binary on Ubuntu 24.04
 # without installing the mosquitto package / enabling mosquitto.service.
 MOSQUITTO_HOST_RUNTIME_PKGS = (
@@ -148,39 +150,54 @@ def read_aedes_ready_port(
     )
 
 
-def wait_mosquitto_listen_log(
+def wait_mosquitto_ready_log(
     proc: subprocess.Popen,
     log_path: Path,
     expect_port: int,
     timeout_s: float = 5.0,
 ) -> None:
-    """Require this child's stderr log to report binding ``expect_port``."""
-    needle = f"Opening ipv4 listen socket on port {expect_port}."
+    """Require listen notice for ``expect_port``, then post-bind ``… running``.
+
+    Mosquitto logs "Opening ipv4 listen socket on port N" *before* bind/listen
+    succeeds. Occupied ports still emit that line, then Error, and never reach
+    "mosquitto version X running". Ready only when both appear in that order.
+    """
+    listen_needle = f"Opening ipv4 listen socket on port {expect_port}."
     deadline = time.monotonic() + timeout_s
     last = ""
     while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            try:
-                last = log_path.read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                pass
-            raise RuntimeError(
-                f"mosquitto exited before listen rc={proc.returncode}; log={last[:500]!r}"
-            )
         try:
             last = log_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             last = ""
-        if needle in last:
-            m = MOSQ_LISTEN_RE.search(last)
-            if m and int(m.group(1)) != expect_port:
+        listen_m = MOSQ_LISTEN_RE.search(last)
+        running_m = MOSQ_RUNNING_RE.search(last)
+        if listen_m and int(listen_m.group(1)) != expect_port:
+            raise RuntimeError(
+                f"mosquitto listen port mismatch log={listen_m.group(1)} "
+                f"expect={expect_port}"
+            )
+        if listen_m and running_m and listen_needle in last:
+            if running_m.start() <= listen_m.start():
                 raise RuntimeError(
-                    f"mosquitto listen port mismatch log={m.group(1)} expect={expect_port}"
+                    "mosquitto running line appeared before listen notice; "
+                    f"log={last[:500]!r}"
+                )
+            if proc.poll() is not None:
+                raise RuntimeError(
+                    f"mosquitto exited after ready marks rc={proc.returncode}; "
+                    f"log={last[:500]!r}"
                 )
             return
+        if proc.poll() is not None:
+            raise RuntimeError(
+                f"mosquitto exited before ready rc={proc.returncode}; "
+                f"log={last[:500]!r}"
+            )
         time.sleep(0.05)
     raise RuntimeError(
-        f"mosquitto listen log timeout expecting {needle!r}; log={last[:500]!r}"
+        f"mosquitto ready timeout (need listen {expect_port} then running); "
+        f"log={last[:500]!r}"
     )
 
 
@@ -297,7 +314,7 @@ def start_mosquitto(workdir: Path) -> BrokerProc:
         cwd=str(workdir),
     )
     try:
-        wait_mosquitto_listen_log(proc, log_path, port, timeout_s=5.0)
+        wait_mosquitto_ready_log(proc, log_path, port, timeout_s=5.0)
         if proc.poll() is not None:
             raise RuntimeError(f"mosquitto exited after listen rc={proc.returncode}")
     except Exception:

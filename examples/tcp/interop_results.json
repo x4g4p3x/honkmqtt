@@ -40,14 +40,14 @@
       "note": "downloaded mosquitto=2.0.18-1build3",
       "deb_file": "mosquitto_2.0.18-1build3_amd64.deb",
       "deb_sha256": "aa0c041d847a20ba4bc15110e87e6c848a478856d8f6c6bb04610618cfa173ea",
-      "extract_root": "/tmp/honkmqtt-m3-mlna_t41/mosquitto_pkg/root",
-      "binary": "/tmp/honkmqtt-m3-mlna_t41/mosquitto_pkg/root/usr/sbin/mosquitto",
-      "path_prepend": "/tmp/honkmqtt-m3-mlna_t41/mosquitto_pkg/root/usr/sbin",
+      "extract_root": "/tmp/honkmqtt-m3-s75arow9/mosquitto_pkg/root",
+      "binary": "/tmp/honkmqtt-m3-s75arow9/mosquitto_pkg/root/usr/sbin/mosquitto",
+      "path_prepend": "/tmp/honkmqtt-m3-s75arow9/mosquitto_pkg/root/usr/sbin",
       "download_command": "apt-get download mosquitto=2.0.18-1build3",
-      "extract_command": "dpkg-deb -x /tmp/honkmqtt-m3-mlna_t41/mosquitto_pkg/deb/mosquitto_2.0.18-1build3_amd64.deb /tmp/honkmqtt-m3-mlna_t41/mosquitto_pkg/root",
+      "extract_command": "dpkg-deb -x /tmp/honkmqtt-m3-s75arow9/mosquitto_pkg/deb/mosquitto_2.0.18-1build3_amd64.deb /tmp/honkmqtt-m3-s75arow9/mosquitto_pkg/root",
       "runtime": {
         "depends": "adduser (>= 3.10), libcjson1 (>= 1.7.13), libmosquitto1 (= 2.0.18-1build3), sysvinit-utils (>= 3.06), libc6 (>= 2.38), libdlt2 (>= 2.18.10), libssl3t64 (>= 3.0.0), libsystemd0, libwebsockets19t64 (>= 1.6.0), libwrap0 (>= 7.6-4~)",
-        "ldd": "linux-vdso.so.1 (0x00007c36a1ea0000)\n\tlibwrap.so.0 => /lib/x86_64-linux-gnu/libwrap.so.0 (0x00007c36a1e33000)\n\tlibsystemd.so.0 => /lib/x86_64-linux-gnu/libsystemd.so.0 (0x00007c36a1d53000)\n\tlibdlt.so.2 => /lib/x86_64-linux-gnu/libdlt.so.2 (0x00007c36a1d28000)\n\tlibssl.so.3 => /lib/x86_64-linux-gnu/libssl.so.3 (0x00007c36a1c7e000)\n\tlibcrypto.so.3 => /lib/x86_64-linux-gnu/libcrypto.so.3 (0x00007c36a1600000)\n\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007c36a1b93000)\n\tlibwebsockets.so.19 => /lib/x86_64-linux-gnu/libwebsockets.so.19 (0x00007c36a1b1a000)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007c36a1200000)\n\tlibcap.so.2 => /lib/x86_64-linux-gnu/libcap.so.2 (0x00007c36a15f3000)\n\tlibgcrypt.so.20 => /lib/x86_64-linux-gnu/libgcrypt.so.20 (0x00007c36a14aa000)\n\tliblz4.so.1 => /lib/x86_64-linux-gnu/liblz4.so.1 (0x00007c36a1488000)\n\tliblzma.so.5 => /lib/x86_64-linux-gnu/liblzma.so.5 (0x00007c36a1456000)\n\tlibzstd.so.1 => /lib/x86_64-linux-gnu/libzstd.so.1 (0x00007c36a1146000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007c36a1ea2000)\n\tlibz.so.1 => /lib/x86_64-linux-gnu/libz.so.1 (0x00007c36a143a000)\n\tlibgpg-error.so.0 => /lib/x86_64-linux-gnu/libgpg-error.so.0 (0x00007c36a1415000)",
+        "ldd": "linux-vdso.so.1 (0x00007eee68751000)\n\tlibwrap.so.0 => /lib/x86_64-linux-gnu/libwrap.so.0 (0x00007eee686e4000)\n\tlibsystemd.so.0 => /lib/x86_64-linux-gnu/libsystemd.so.0 (0x00007eee68604000)\n\tlibdlt.so.2 => /lib/x86_64-linux-gnu/libdlt.so.2 (0x00007eee685d9000)\n\tlibssl.so.3 => /lib/x86_64-linux-gnu/libssl.so.3 (0x00007eee6852f000)\n\tlibcrypto.so.3 => /lib/x86_64-linux-gnu/libcrypto.so.3 (0x00007eee68000000)\n\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007eee67f17000)\n\tlibwebsockets.so.19 => /lib/x86_64-linux-gnu/libwebsockets.so.19 (0x00007eee67e9e000)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007eee67c00000)\n\tlibcap.so.2 => /lib/x86_64-linux-gnu/libcap.so.2 (0x00007eee68520000)\n\tlibgcrypt.so.20 => /lib/x86_64-linux-gnu/libgcrypt.so.20 (0x00007eee67ab7000)\n\tliblz4.so.1 => /lib/x86_64-linux-gnu/liblz4.so.1 (0x00007eee67e7c000)\n\tliblzma.so.5 => /lib/x86_64-linux-gnu/liblzma.so.5 (0x00007eee67e4a000)\n\tlibzstd.so.1 => /lib/x86_64-linux-gnu/libzstd.so.1 (0x00007eee679fd000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007eee68753000)\n\tlibz.so.1 => /lib/x86_64-linux-gnu/libz.so.1 (0x00007eee67e2e000)\n\tlibgpg-error.so.0 => /lib/x86_64-linux-gnu/libgpg-error.so.0 (0x00007eee679d8000)",
         "missing_shared_libs": [],
         "host_runtime_packages_ubuntu_24_04": [
           "libc6",
@@ -63,8 +63,8 @@
     },
     "aedes_provenance": {
       "method": "npm ci into owned TemporaryDirectory",
-      "parent": "/tmp/tmp.0QB5TPkfTT",
-      "install_dir": "/tmp/tmp.0QB5TPkfTT/honkmqtt-aedes-8vyqh37w",
+      "parent": "/tmp/tmp.g4xrkTqPaY",
+      "install_dir": "/tmp/tmp.g4xrkTqPaY/honkmqtt-aedes-kjrvoujy",
       "package_json": "examples/tcp/brokers/package.json",
       "package_lock": "examples/tcp/brokers/package-lock.json",
       "aedes_server": "examples/tcp/brokers/aedes_server.js",
@@ -78,7 +78,7 @@
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "d9712defb0d8162091549a8c29fd97e8ca7ccf45f17a7c97a7d89bdac3047156",
+      "broker_conf_sha256": "c96338720190349d6dfd79984761cab2a392cd7837dfbf0797eb395c31682bc3",
       "scenario": "positive",
       "client_id": "honk-m3-mosquitto-positive",
       "ok": true,
@@ -100,7 +100,7 @@
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "d9712defb0d8162091549a8c29fd97e8ca7ccf45f17a7c97a7d89bdac3047156",
+      "broker_conf_sha256": "c96338720190349d6dfd79984761cab2a392cd7837dfbf0797eb395c31682bc3",
       "scenario": "malformed",
       "client_id": "honk-m3-mosquitto-malformed",
       "ok": true,
@@ -121,7 +121,7 @@
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "d9712defb0d8162091549a8c29fd97e8ca7ccf45f17a7c97a7d89bdac3047156",
+      "broker_conf_sha256": "c96338720190349d6dfd79984761cab2a392cd7837dfbf0797eb395c31682bc3",
       "scenario": "reconnect",
       "client_id": "honk-m3-mosquitto-reconnect",
       "ok": true,

@@ -36,7 +36,7 @@ This is interoperability evidence, not certification or a stable network stack.
 | Send ack | one `socket.send`; reply u16be count |
 | Peer close | drain all complete buffered frames before RECV/EOF; bridge EOF/RESET only |
 | Aedes ready | bind `127.0.0.1:0`; bounded `AEDES_READY <port>` banner (≤5 s); kill/reap |
-| Mosquitto ready | child stderr information `Opening ipv4 listen socket on port N` (≤5 s); kill/reap |
+| Mosquitto ready | listen notice for expected port **then** `mosquitto version … running` (≤5 s); kill/reap |
 
 ## Brokers and prerequisites
 
@@ -61,7 +61,7 @@ unit** so it would not compete on port 1883. Ephemeral harness listeners do
 `systemd` units. Leave any pre-existing Mosquitto install as you found it.
 
 Ephemeral Mosquitto config from `brokers/mosquitto.conf.in` (template SHA-256
-`cd11afe53123556f1fb42dccdbbec5d68a3afff2eb940822afd85a91418518bb`); runtime
+`dc598a4d59c783327b7d4ded8f9951090a20860484fd4f414b81dea8ef1b0b9f`); runtime
 file substitutes `@PORT@`. Aedes entrypoint SHA-256 is recorded per run in
 `interop_results.json` (`broker_conf_sha256` for aedes rows).
 
@@ -90,9 +90,11 @@ sudo apt-get install --no-install-recommends \
 ```
 
 Without `--extract-mosquitto`, the host `PATH` binary is recorded as reused.
-Mosquitto readiness is this child's information log line
-`Opening ipv4 listen socket on port N` (line-buffered via `stdbuf` when
-available; not a foreign `wait_port`).
+Mosquitto readiness requires, in order, this child's information log lines
+`Opening ipv4 listen socket on port N` **and then**
+`mosquitto version … running` (line-buffered via `stdbuf` when available).
+The listen notice alone is pre-bind and is not sufficient — an occupied port
+still emits it, then errors, and never reaches `running`.
 
 Aedes always gets `npm ci --no-fund --no-audit` from the pinned
 `brokers/package-lock.json` into an **owned** `TemporaryDirectory` (optional
