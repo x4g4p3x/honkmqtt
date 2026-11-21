@@ -649,17 +649,16 @@ fn subscribe_next(input: const u8[:], pos: i64, end: i64) -> i64, i64, i64, i64,
 }
 
 // Validate a pre-encoded SUBSCRIBE payload list (one or more filter/QoS pairs).
+// Nonempty is required; subscribe_next advances strictly and cannot overrun `end`.
 fn valid_subscribe_list(list: const u8[:]) -> bool {
     if list.len == 0 { return false; }
     var pos = 0;
-    var count = 0;
     while pos < list.len {
         let st, next, _, _, _ = subscribe_next(list, pos, list.len);
         if st != OK { return false; }
         pos = next;
-        count += 1;
     }
-    return count >= 1 && pos == list.len;
+    return true;
 }
 
 fn valid_suback_codes(codes: const u8[:]) -> bool {
@@ -708,14 +707,15 @@ fn subscribe(input: const u8[:], max_body: i64) -> i64, i64, i64, i64, i64 {
 // writes only after success is known.
 //
 // Failure precedence (first match wins; out unchanged on every error):
-//   INVALID — packet_id not in 1..65535; list empty or malformed (filter /
-//             QoS rules); Remaining Length would exceed MAX_REMAINING
+//   INVALID — packet_id not in 1..65535; list.len > MAX_REMAINING-2 (before
+//             scanning, so size stays bounded); list empty or malformed;
+//             then NO_SPACE if out is short
 //   NO_SPACE — out shorter than the encoded packet
 fn encode_subscribe(packet_id: i64, list: const u8[:], out: u8[:]) -> i64, i64 {
     if packet_id < 1 || packet_id > 65535 { return INVALID, 0; }
+    if list.len > MAX_REMAINING - 2 { return INVALID, 0; }
     if !valid_subscribe_list(list) { return INVALID, 0; }
     let remaining = 2 + list.len;
-    if remaining > MAX_REMAINING { return INVALID, 0; }
 
     var prefix: u8[5] = [0; 5];
     prefix[0] = 0x82;
@@ -773,14 +773,14 @@ fn suback(input: const u8[:], max_body: i64) -> i64, i64, i64, i64, i64 {
 // codes. Validates and sizes first; writes only after success is known.
 //
 // Failure precedence (first match wins; out unchanged on every error):
-//   INVALID — packet_id not in 1..65535; codes empty or contain a reserved
-//             value; Remaining Length would exceed MAX_REMAINING
+//   INVALID — packet_id not in 1..65535; codes.len > MAX_REMAINING-2 (before
+//             scanning); codes empty or reserved values; then NO_SPACE
 //   NO_SPACE — out shorter than the encoded packet
 fn encode_suback(packet_id: i64, codes: const u8[:], out: u8[:]) -> i64, i64 {
     if packet_id < 1 || packet_id > 65535 { return INVALID, 0; }
+    if codes.len > MAX_REMAINING - 2 { return INVALID, 0; }
     if !valid_suback_codes(codes) { return INVALID, 0; }
     let remaining = 2 + codes.len;
-    if remaining > MAX_REMAINING { return INVALID, 0; }
 
     var prefix: u8[5] = [0; 5];
     prefix[0] = 0x90;

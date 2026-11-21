@@ -129,6 +129,11 @@ fn literal_subscribe() {
         0x00, 0x01, 0x2b, 0x01,
     ];
     subscribe_vector_ok(v3, 2, list3, 3);
+
+    // Packet Identifier 0xffff.
+    let list_maxid: u8[4] = [0x00, 0x01, 0x61, 0x00];
+    let vmax:       u8[8] = [0x82, 0x06, 0xff, 0xff, 0x00, 0x01, 0x61, 0x00];
+    subscribe_vector_ok(vmax, 65535, list_maxid, 1);
 }
 
 fn literal_suback() {
@@ -144,6 +149,11 @@ fn literal_suback() {
     let c3: u8[4] = [0x00, 0x01, 0x02, 0x80];
     let a3: u8[8] = [0x90, 0x06, 0x00, 0xff, 0x00, 0x01, 0x02, 0x80];
     suback_vector_ok(a3, 255, c3);
+
+    // Packet Identifier 0xffff.
+    let cmax: u8[1] = [0x02];
+    let amax: u8[5] = [0x90, 0x03, 0xff, 0xff, 0x02];
+    suback_vector_ok(amax, 65535, cmax);
 }
 
 fn truncations() {
@@ -184,6 +194,9 @@ fn malformed_subscribe() {
     parse_sub_fail([0x82, 0x09, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x01, 0x61, 0x00], 65535, honkmqtt::INVALID);
     // Invalid UTF-8 / U+0000 in filter.
     parse_sub_fail([0x82, 0x06, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00], 65535, honkmqtt::INVALID);
+
+    // Invalid wildcard placement ("a+") with otherwise correct RL — pins valid_filter.
+    parse_sub_fail([0x82, 0x07, 0x00, 0x01, 0x00, 0x02, 0x61, 0x2b, 0x00], 65535, honkmqtt::INVALID);
 
     // Length past Remaining Length (complete frame → INVALID).
     parse_sub_fail([0x82, 0x06, 0x00, 0x01, 0x00, 0x05, 0x61, 0x00], 65535, honkmqtt::INVALID);
@@ -243,8 +256,31 @@ fn malformed_suback() {
     encode_ack_fail(0, [0x00], tiny, honkmqtt::INVALID);
 }
 
+fn subscribe_next_bounds() {
+    let pkt: u8[8] = [0x82, 0x06, 0x00, 0x01, 0x00, 0x01, 0x61, 0x00];
+    let st, used, _, lo, ll = honkmqtt::subscribe(pkt, 64);
+    assert(st == honkmqtt::OK && used == 8);
+    let end = lo + ll;
+
+    // Direct iterator ABI: malformed cursor / boundary cases.
+    let e1, _, _, _, _ = honkmqtt::subscribe_next(pkt, end, end);
+    assert(e1 == honkmqtt::INVALID);
+    let e2, _, _, _, _ = honkmqtt::subscribe_next(pkt, end + 1, end);
+    assert(e2 == honkmqtt::INVALID);
+    let e3, _, _, _, _ = honkmqtt::subscribe_next(pkt, -1, end);
+    assert(e3 == honkmqtt::INVALID);
+    let e4, _, _, _, _ = honkmqtt::subscribe_next(pkt, lo, pkt.len + 1);
+    assert(e4 == honkmqtt::INVALID);
+    // Truncated mid-entry: stop before QoS byte.
+    let e5, _, _, _, _ = honkmqtt::subscribe_next(pkt, lo, lo + 3);
+    assert(e5 == honkmqtt::INVALID);
+    // Length past iterator end.
+    let e6, _, _, _, _ = honkmqtt::subscribe_next(pkt, lo, lo + 2);
+    assert(e6 == honkmqtt::INVALID);
+}
+
 fn boundary_filter() {
-    // 65535-byte filter accept / 65536-byte encode reject.
+    // 65535-byte filter accept.
     var filt: u8[65535] = ['a'; 65535];
     var list: u8[65538] = [0; 65538];
     list[0] = 0xff;
@@ -262,8 +298,11 @@ fn boundary_filter() {
     assert(ns == honkmqtt::OK && fl == 65535 && qos == 1 && next == lo + ll);
     assert(out[fo] == 'a' && out[fo + 65534] == 'a');
 
-    // Length prefix claims 65535 bytes but supplies none → INVALID list.
-    encode_sub_fail(1, [0xff, 0xff], out[0..8], honkmqtt::INVALID);
+    // Two-byte length 0xFFFF with only partial data → missing-data INVALID
+    // (not a 65536-byte filter; the length field cannot encode that).
+    encode_sub_fail(1, [0xff, 0xff, 0x61, 0x62], out[0..8], honkmqtt::INVALID);
+    // Nominal max length prefix with trailing junk after a short complete entry.
+    encode_sub_fail(1, [0x00, 0x01, 0x61, 0x00, 0xff], out[0..8], honkmqtt::INVALID);
 }
 
 fn adjacent() {
@@ -288,6 +327,7 @@ fn main() {
     truncations();
     malformed_subscribe();
     malformed_suback();
+    subscribe_next_bounds();
     boundary_filter();
     adjacent();
     print("SUBSCRIBE/SUBACK tests passed");
