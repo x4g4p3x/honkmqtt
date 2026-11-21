@@ -7,7 +7,7 @@
       "brokers": "examples/tcp/brokers"
     },
     "session_sha256": "4c44a86643e3fe4d492cf8a1b7cf15678d295f58dd1d3438a89f164b96e74f59",
-    "bridge_sha256": "1d162a20cd8430505f7cb060f99a5b7c2437ce9d1c1175a2178098dcc64c81f5",
+    "bridge_sha256": "87c57dd743047ac29516bd2c55a384774d2a124f76761e6be7ef66a1fe7fbc4c",
     "stream_sha256": "5eaa10314d98df22f761017a656bd353745deb3970e41005914964630c5b1f15",
     "toolchain": {
       "python": "3.12.3",
@@ -23,7 +23,8 @@
       "tx_cap": 256,
       "max_body": 251,
       "recv_max": 64,
-      "recv_cap_rule": "min(64, rx_tail_free); compact when tail full",
+      "recv_cap_rule": "min(64, rx_tail_free); compact when tail full; reset empty window at capacity",
+      "connect_deadline": "fail if remaining<=0; else min(2.0, remaining)",
       "ipc_max": 512,
       "connect_timeout_s": 2.0,
       "io_timeout_s": 2.0,
@@ -32,13 +33,13 @@
     },
     "architecture": "Python TCP bridge moves bounded socket chunks and returns actual send() counts; Goose applies stream::feed/frame/commit_rx and stream::enqueue/drain/commit_tx plus typed codecs. Python does not frame MQTT. Core honkmqtt.goose unchanged.",
     "broker_listeners": "Harness starts only ephemeral 127.0.0.1 Mosquitto/Aedes children in a TemporaryDirectory (cleaned up on exit). It does not stop, disable, or manage any system mosquitto.service unit.",
-    "aedes_install": "npm ci --no-fund --no-audit from brokers/package-lock.json into a native temp directory (avoids corrupted node_modules on /mnt/c)"
+    "aedes_install": "npm ci --no-fund --no-audit from brokers/package-lock.json into /tmp/honkmqtt-aedes-npm (or HONKMQTT_AEDES_NPM); readiness via wait_port + child.poll (no stdout banner)"
   },
   "results": [
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "b9bb8d39adc64bcab6fbceecfde2a5d4dfcea8528d7ba15d556678d494a79e01",
+      "broker_conf_sha256": "b48ad34ecf21e91fbb8eb2cf8b18af28b7b602ecce455904d7e2f68a9bc68e16",
       "scenario": "positive",
       "client_id": "honk-m3-mosquitto-positive",
       "ok": true,
@@ -60,7 +61,7 @@
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "b9bb8d39adc64bcab6fbceecfde2a5d4dfcea8528d7ba15d556678d494a79e01",
+      "broker_conf_sha256": "b48ad34ecf21e91fbb8eb2cf8b18af28b7b602ecce455904d7e2f68a9bc68e16",
       "scenario": "malformed",
       "client_id": "honk-m3-mosquitto-malformed",
       "ok": true,
@@ -81,7 +82,7 @@
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "b9bb8d39adc64bcab6fbceecfde2a5d4dfcea8528d7ba15d556678d494a79e01",
+      "broker_conf_sha256": "b48ad34ecf21e91fbb8eb2cf8b18af28b7b602ecce455904d7e2f68a9bc68e16",
       "scenario": "reconnect",
       "client_id": "honk-m3-mosquitto-reconnect",
       "ok": true,

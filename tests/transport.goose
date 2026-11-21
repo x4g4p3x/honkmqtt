@@ -205,9 +205,8 @@ fn rx_backpressure_and_compact() {
     assert(rx[0] == 3 && rx[1] == 4 && rx[2] == 9 && rx[3] == 8);
 }
 
-// TCP bridge must request ≤ free tail: with start>0 and end<len, feed without
-// compact accepts only rx.len-end bytes even if total free is larger.
-// After consuming a full buffer, start==end==len; compact/reset reclaim.
+// After consuming a full buffer, start==end==len; compact/reset reclaim so a
+// later RECV can land a complete MQTT frame (PINGREQ).
 fn feed_after_empty_window_at_capacity() {
     var rx: u8[4] = [0; 4];
     var s = 0;
@@ -216,43 +215,91 @@ fn feed_after_empty_window_at_capacity() {
     assert(f0 == stream::OK && t0 == 4 && ne0 == 4);
     s = ns0;
     e = ne0;
-    let _, s1, e1 = stream::commit_rx(s, e, 2);
+    let fs0, used0 = try_frame(rx, s, e);
+    assert(fs0 == honkmqtt::OK && used0 == 2);
+    let _, s1, e1 = stream::commit_rx(s, e, used0);
     s = s1;
     e = e1;
-    let _, s2, e2 = stream::commit_rx(s, e, 2);
+    let fs1, used1 = try_frame(rx, s, e);
+    assert(fs1 == honkmqtt::OK && used1 == 2);
+    let _, s2, e2 = stream::commit_rx(s, e, used1);
     s = s2;
     e = e2;
     assert(s == 4 && e == 4);
     // Explicit compact/reset of empty window at capacity (TCP session policy).
     let cs, ns, ne = stream::compact(rx, s, e);
     assert(cs == stream::OK && ns == 0 && ne == 0);
-    let f3, ns3, ne3, t3 = stream::feed(rx, ns, ne, [0xe0, 0x00], 2);
+    let f3, ns3, ne3, t3 = stream::feed(rx, ns, ne, [0xc0, 0x00], 2);
     assert(f3 == stream::OK && t3 == 2 && ns3 == 0 && ne3 == 2);
+    let fs3, used3 = try_frame(rx, ns3, ne3);
+    assert(fs3 == honkmqtt::OK && used3 == 2);
+    let pr, _ = honkmqtt::pingreq(rx[ns3..ns3 + used3]);
+    assert(pr == honkmqtt::OK);
 }
 
+// Fragmented valid PINGREQ near a short free tail: first byte lands in the
+// remaining tail without compact; second byte needs compact then completes.
 fn feed_free_tail_before_compact() {
     var rx: u8[8] = [0; 8];
     var s = 0;
     var e = 0;
-    let f0, ns0, ne0, t0 = stream::feed(rx, s, e, [1, 2, 3, 4, 5, 6], 6);
+    // Fill with three complete PINGREQ frames (6 bytes), leave a 2-byte tail.
+    let f0, ns0, ne0, t0 = stream::feed(rx, s, e, [0xc0, 0x00, 0xc0, 0x00, 0xc0, 0x00], 6);
     assert(f0 == stream::OK && t0 == 6 && ns0 == 0 && ne0 == 6);
     s = ns0;
     e = ne0;
-    let _, s1, e1 = stream::commit_rx(s, e, 3);
+    let fs0, used0 = try_frame(rx, s, e);
+    assert(fs0 == honkmqtt::OK && used0 == 2);
+    let _, s1, e1 = stream::commit_rx(s, e, used0);
     s = s1;
     e = e1;
-    assert(s == 3 && e == 6);
-    // Free tail = 2, total free = 5. Cap max_n to free tail (TCP policy).
+    assert(s == 2 && e == 6);
+    // Free tail = 2, total free = 4. Cap max_n to free tail (TCP policy).
     let free_tail = rx.len - e;
     assert(free_tail == 2);
-    let f2, ns2, ne2, t2 = stream::feed(rx, s, e, [7, 8, 9, 10, 11], free_tail);
-    assert(f2 == stream::OK && t2 == 2 && ns2 == 3 && ne2 == 8);
-    assert(rx[3] == 4 && rx[4] == 5 && rx[5] == 6 && rx[6] == 7 && rx[7] == 8);
-    // Now tail is full; compact then accept the rest.
+    // First fragment of a fourth PINGREQ into the short tail only.
+    let f2, ns2, ne2, t2 = stream::feed(rx, s, e, [0xc0, 0x00], free_tail);
+    assert(f2 == stream::OK && t2 == 2 && ns2 == 2 && ne2 == 8);
+    // Compact reclaims headroom; incomplete frame prefix must survive.
     let cs, ns3, ne3 = stream::compact(rx, ns2, ne2);
-    assert(cs == stream::OK && ns3 == 0 && ne3 == 5);
-    let f3, ns4, ne4, t3 = stream::feed(rx, ns3, ne3, [9, 10, 11], 3);
-    assert(f3 == stream::OK && t3 == 3 && ns4 == 0 && ne4 == 8);
+    assert(cs == stream::OK && ns3 == 0 && ne3 == 6);
+    // Remaining two complete frames then the complete fourth PINGREQ.
+    let fs1, used1 = try_frame(rx, ns3, ne3);
+    assert(fs1 == honkmqtt::OK && used1 == 2);
+    let _, s4, e4 = stream::commit_rx(ns3, ne3, used1);
+    let fs2, used2 = try_frame(rx, s4, e4);
+    assert(fs2 == honkmqtt::OK && used2 == 2);
+    let _, s5, e5 = stream::commit_rx(s4, e4, used2);
+    let fs3, used3 = try_frame(rx, s5, e5);
+    assert(fs3 == honkmqtt::OK && used3 == 2 && e5 - s5 == 2);
+    let pr, _ = honkmqtt::pingreq(rx[s5..s5 + used3]);
+    assert(pr == honkmqtt::OK);
+}
+
+// Coalesced first frame + forbidden PINGRESP must both be visible when draining
+// before peer-close (session wait_peer_close policy).
+fn coalesced_frames_before_eof() {
+    var rx: u8[8] = [0; 8];
+    var s = 0;
+    var e = 0;
+    // CONNACK (4) + PINGRESP (2) delivered in one feed (coalesced TCP read).
+    let blob: u8[6] = [0x20, 0x02, 0x00, 0x00, 0xd0, 0x00];
+    let f0, ns0, ne0, t0 = stream::feed(rx, s, e, blob, 6);
+    assert(f0 == stream::OK && t0 == 6 && ne0 == 6);
+    s = ns0;
+    e = ne0;
+    let fs0, used0 = try_frame(rx, s, e);
+    assert(fs0 == honkmqtt::OK && used0 == 4);
+    let ca, _, session, code = honkmqtt::connack(rx[s..s + used0]);
+    assert(ca == honkmqtt::OK && !session && code == 0);
+    let _, s1, e1 = stream::commit_rx(s, e, used0);
+    s = s1;
+    e = e1;
+    // Second complete frame still buffered — must be inspected before EOF.
+    let fs1, used1 = try_frame(rx, s, e);
+    assert(fs1 == honkmqtt::OK && used1 == 2);
+    let pr, _ = honkmqtt::pingresp(rx[s..s + used1]);
+    assert(pr == honkmqtt::OK);
 }
 
 fn short_writes_commit_only() {
@@ -353,6 +400,7 @@ fn main() {
     rx_backpressure_and_compact();
     feed_after_empty_window_at_capacity();
     feed_free_tail_before_compact();
+    coalesced_frames_before_eof();
     short_writes_commit_only();
     enqueue_compact_with_partly_free_tail();
     print("Transport adapter tests passed");

@@ -9,11 +9,9 @@ conformance or production security.
 from __future__ import annotations
 
 import argparse
-import errno
 import hashlib
 import json
 import os
-import select
 import shutil
 import signal
 import socket
@@ -54,10 +52,18 @@ def which(name: str) -> Optional[str]:
     return None
 
 
-def wait_port(host: str, port: int, timeout_s: float = 5.0) -> None:
+def wait_port(
+    host: str,
+    port: int,
+    timeout_s: float = 5.0,
+    child: Optional[subprocess.Popen] = None,
+) -> None:
+    """Bounded loopback accept probe; fail early if ``child`` has exited."""
     deadline = time.monotonic() + timeout_s
     last = None
     while time.monotonic() < deadline:
+        if child is not None and child.poll() is not None:
+            raise RuntimeError(f"child exited before listen rc={child.returncode}")
         try:
             with socket.create_connection((host, port), timeout=0.2):
                 return
@@ -122,18 +128,15 @@ def start_mosquitto(workdir: Path) -> BrokerProc:
     return BrokerProc("mosquitto", version, port, proc, conf_hash)
 
 
-def aedes_install_dir(workdir: Path) -> Path:
-    """Return a native-FS directory with ``npm ci`` tree for Aedes.
-
-    Installing ``node_modules`` on /mnt/c (9p/drvfs) can leave truncated
-    package.json files. Prefer a Linux temp dir under ``workdir``.
-    """
-    dest = workdir / "aedes_npm"
-    marker = dest / "node_modules" / "aedes" / "package.json"
+def aedes_native_install_dir() -> Path:
+    """Pinned Aedes tree via ``npm ci`` on a native Linux path (not /mnt/c)."""
+    # Prefer /tmp so WSL/drvfs cannot truncate package.json during install.
+    base = Path(os.environ.get("HONKMQTT_AEDES_NPM", "/tmp/honkmqtt-aedes-npm"))
+    marker = base / "node_modules" / "aedes" / "package.json"
     if marker.is_file():
         try:
             json.loads(marker.read_text(encoding="utf-8"))
-            return dest
+            return base
         except (OSError, json.JSONDecodeError):
             pass
     lock = BROKERS / "package-lock.json"
@@ -144,25 +147,27 @@ def aedes_install_dir(workdir: Path) -> Path:
     npm = which("npm") or which("npm.cmd")
     if not npm:
         raise RuntimeError("npm not found; cannot install pinned aedes (npm ci)")
-    dest.mkdir(parents=True, exist_ok=True)
+    if base.exists():
+        shutil.rmtree(base)
+    base.mkdir(parents=True, exist_ok=True)
     for name in ("package.json", "package-lock.json", "aedes_server.js"):
-        src = BROKERS / name
-        (dest / name).write_bytes(src.read_bytes())
+        (base / name).write_bytes((BROKERS / name).read_bytes())
     subprocess.check_call(
         [npm, "ci", "--no-fund", "--no-audit"],
-        cwd=str(dest),
+        cwd=str(base),
     )
     if not marker.is_file():
         raise RuntimeError("npm ci did not install aedes")
-    json.loads(marker.read_text(encoding="utf-8"))  # validate readable JSON
-    return dest
+    json.loads(marker.read_text(encoding="utf-8"))
+    return base
 
 
 def start_aedes(workdir: Path) -> BrokerProc:
+    """Start Aedes; readiness is port listen + live child (no stdout banner)."""
     node = which("node") or which("node.exe")
     if not node:
         raise RuntimeError("node not found on PATH")
-    install = aedes_install_dir(workdir)
+    install = aedes_native_install_dir()
     aedes_pkg = install / "node_modules" / "aedes" / "package.json"
     try:
         version = json.loads(aedes_pkg.read_text(encoding="utf-8"))["version"]
@@ -174,62 +179,33 @@ def start_aedes(workdir: Path) -> BrokerProc:
     conf_hash = sha256_file(BROKERS / "aedes_server.js")
     log_path = workdir / "aedes.log"
     logf = open(log_path, "wb")
+    # Discard stdout; readiness is wait_port + poll (silent children time out).
     proc = subprocess.Popen(
         [node, str(install / "aedes_server.js"), str(port)],
-        stdout=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
         stderr=logf,
         cwd=str(install),
-        bufsize=0,
     )
-    assert proc.stdout is not None
-    deadline = time.monotonic() + 5.0
-    ready = False
-    buf = bytearray()
-    fd = proc.stdout.fileno()
     try:
-        while time.monotonic() < deadline and not ready:
-            left = deadline - time.monotonic()
-            if left <= 0:
-                break
-            readable, _, _ = select.select([fd], [], [], left)
-            if not readable:
-                break
-            try:
-                chunk = os.read(fd, 256)
-            except OSError as exc:
-                if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
-                    continue
-                break
-            if not chunk:
-                break
-            buf.extend(chunk)
-            while b"\n" in buf:
-                line, _, rest = buf.partition(b"\n")
-                buf[:] = rest
-                text = line.decode("utf-8", errors="replace").strip()
-                if text.startswith("AEDES_READY"):
-                    ready = True
-                    break
-            if len(buf) > 4096:
-                break
-    finally:
-        if not ready:
-            try:
-                proc.kill()
-            except OSError:
-                pass
-            try:
-                proc.wait(timeout=2)
-            except Exception:
-                pass
-            logf.close()
-            err = ""
-            try:
-                err = Path(log_path).read_text(encoding="utf-8", errors="replace")[:500]
-            except OSError:
-                pass
-            raise RuntimeError(f"aedes failed to become ready: {err}")
-    wait_port("127.0.0.1", port)
+        wait_port("127.0.0.1", port, timeout_s=5.0, child=proc)
+        if proc.poll() is not None:
+            raise RuntimeError(f"aedes exited during startup rc={proc.returncode}")
+    except Exception as exc:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+        try:
+            proc.wait(timeout=2)
+        except Exception:
+            pass
+        logf.close()
+        err = ""
+        try:
+            err = Path(log_path).read_text(encoding="utf-8", errors="replace")[:500]
+        except OSError:
+            pass
+        raise RuntimeError(f"aedes failed to become ready: {exc}; log={err}") from exc
     return BrokerProc("aedes", version, port, proc, conf_hash)
 
 
@@ -374,7 +350,11 @@ def main() -> int:
             "tx_cap": 256,
             "max_body": 251,
             "recv_max": 64,
-            "recv_cap_rule": "min(64, rx_tail_free); compact when tail full",
+            "recv_cap_rule": (
+                "min(64, rx_tail_free); compact when tail full; "
+                "reset empty window at capacity"
+            ),
+            "connect_deadline": "fail if remaining<=0; else min(2.0, remaining)",
             "ipc_max": 512,
             "connect_timeout_s": 2.0,
             "io_timeout_s": 2.0,
@@ -393,8 +373,9 @@ def main() -> int:
             "disable, or manage any system mosquitto.service unit."
         ),
         "aedes_install": (
-            "npm ci --no-fund --no-audit from brokers/package-lock.json into a "
-            "native temp directory (avoids corrupted node_modules on /mnt/c)"
+            "npm ci --no-fund --no-audit from brokers/package-lock.json into "
+            "/tmp/honkmqtt-aedes-npm (or HONKMQTT_AEDES_NPM); readiness via "
+            "wait_port + child.poll (no stdout banner)"
         ),
     }
 

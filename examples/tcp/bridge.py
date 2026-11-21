@@ -66,9 +66,10 @@ def classify_socket_error(exc: BaseException) -> str:
 
 
 def connect_tcp(host: str, port: int, deadline: float) -> socket.socket:
-    timeout = min(CONNECT_TIMEOUT_S, remaining_s(deadline) or CONNECT_TIMEOUT_S)
-    if timeout <= 0:
+    left = remaining_s(deadline)
+    if left <= 0:
         raise BridgeError("CASE_TIMEOUT")
+    timeout = min(CONNECT_TIMEOUT_S, left)
     sock = socket.create_connection((host, port), timeout=timeout)
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     return sock

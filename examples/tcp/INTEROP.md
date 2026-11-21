@@ -28,12 +28,14 @@ This is interoperability evidence, not certification or a stable network stack.
 | RX capacity | 256 |
 | TX capacity | 256 |
 | `max_body` | 251 (`RX - HEADER_MAX`) |
-| Recv request | `min(64, free RX tail)`; compact when tail is full |
+| Recv request | `min(64, free RX tail)`; compact when tail full; reset empty window at capacity |
 | IPC payload max | 512 |
-| TCP connect timeout | 2.0 s (also capped by remaining case time) |
+| TCP connect timeout | `min(2.0 s, remaining)`; **fail** if remaining ≤ 0 (no fresh 2s fallback) |
 | Socket I/O timeout | `min(2.0 s, remaining case time)` |
 | Per-case wall timeout | 15.0 s (watchdog kills Goose child / unblocks pipe) |
 | Send ack | one `socket.send`; reply u16be count |
+| Peer close | drain all complete buffered frames before RECV/EOF; bridge EOF/RESET only |
+| Aedes ready | `wait_port` + `child.poll` (≤5 s); kill/reap + stderr on failure |
 
 ## Brokers and prerequisites
 
@@ -70,14 +72,17 @@ file substitutes `@PORT@`. Aedes entrypoint SHA-256 is recorded per run in
 python3 examples/tcp/run_interop.py --goose goose --json-out examples/tcp/interop_results.json
 ```
 
-The runner copies `brokers/package.json`, `package-lock.json`, and
-`aedes_server.js` into a native temp directory and runs
-`npm ci --no-fund --no-audit` there (avoids truncated `node_modules` on
-`/mnt/c`). To pre-warm the same lockfile install yourself:
+The runner installs Aedes with `npm ci --no-fund --no-audit` from
+`brokers/package-lock.json` into `/tmp/honkmqtt-aedes-npm` (override with
+`HONKMQTT_AEDES_NPM`). That native Linux path avoids truncated
+`node_modules` on `/mnt/c`. Readiness is loopback `wait_port` plus
+`child.poll` — no stdout banner read. To pre-warm:
 
 ```bash
-TMP=$(mktemp -d) && cp examples/tcp/brokers/package.json \
-  examples/tcp/brokers/package-lock.json examples/tcp/brokers/aedes_server.js "$TMP"/ \
+TMP=/tmp/honkmqtt-aedes-npm && rm -rf "$TMP" && mkdir -p "$TMP" \
+  && cp examples/tcp/brokers/package.json \
+     examples/tcp/brokers/package-lock.json \
+     examples/tcp/brokers/aedes_server.js "$TMP"/ \
   && (cd "$TMP" && npm ci --no-fund --no-audit)
 ```
 
