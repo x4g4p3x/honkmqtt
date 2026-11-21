@@ -875,8 +875,7 @@ fn unsubscribe(input: const u8[:], max_body: i64) -> i64, i64, i64, i64, i64 {
 //
 // Failure precedence (first match wins; out unchanged on every error):
 //   INVALID — packet_id not in 1..65535; list.len > MAX_REMAINING-2 (before
-//             scanning, so size stays bounded); list empty or malformed;
-//             then NO_SPACE if out is short
+//             scanning, so size stays bounded); list empty or malformed
 //   NO_SPACE — out shorter than the encoded packet
 fn encode_unsubscribe(packet_id: i64, list: const u8[:], out: u8[:]) -> i64, i64 {
     if packet_id < 1 || packet_id > 65535 { return INVALID, 0; }
@@ -913,8 +912,8 @@ fn encode_unsubscribe(packet_id: i64, list: const u8[:], out: u8[:]) -> i64, i64
 // (fixed type 11, flags 0) without a caller-supplied kind.
 //
 // Failure precedence (first match wins; consumed and packet_id are always 0):
-//   (else) propagate header() status (INCOMPLETE/INVALID for truncated or
-//          illegal fixed-header/flags/non-minimal Remaining Length)
+//   propagate header() status (INCOMPLETE/INVALID for truncated or illegal
+//          fixed-header/flags/non-minimal Remaining Length)
 //   INVALID — packet type ≠ UNSUBACK (11); or Remaining Length ≠ 2 (even if
 //             the body bytes have not arrived yet, once the header is complete)
 //   INCOMPLETE — header OK and RL==2 but identifier bytes are missing

@@ -192,6 +192,16 @@ fn malformed_unsubscribe() {
     // Length past Remaining Length (complete frame → INVALID).
     parse_unsub_fail([0xa2, 0x05, 0x00, 0x01, 0x00, 0x05, 0x61], 65535, honkmqtt::INVALID);
 
+    // Complete UNSUBSCRIBE whose final filter length runs one byte past RL,
+    // followed by a literal QoS-0 PUBLISH [30 03 00 01 62]. The next-frame
+    // first byte 0x30 is ASCII '0' (valid filter data), so an overread cannot
+    // be rejected via invalid UTF-8—list validation must stop at the declared
+    // Remaining Length and return INVALID with zero outputs.
+    parse_unsub_fail([
+        0xa2, 0x05, 0x00, 0x01, 0x00, 0x02, 0x61,
+        0x30, 0x03, 0x00, 0x01, 0x62,
+    ], 65535, honkmqtt::INVALID);
+
     // Trailing junk after a complete entry inside RL.
     parse_unsub_fail([0xa2, 0x06, 0x00, 0x01, 0x00, 0x01, 0x61, 0xff], 65535, honkmqtt::INVALID);
 
@@ -271,7 +281,7 @@ fn boundary_filter() {
     fill(out, 0xa5);
     let es, en = honkmqtt::encode_unsubscribe(1, list[0..2 + 65535], out);
     assert(es == honkmqtt::OK);
-    // Remaining Length = 2 + 65537 = 65539 → VLQ 0x83 0x80 0x04.
+    // Remaining Length = 2 + 65537 = 65539 → literal fixed header A2 83 80 04.
     assert(out[0] == 0xa2 && out[1] == 0x83 && out[2] == 0x80 && out[3] == 0x04);
     let st, used, id, lo, ll = honkmqtt::unsubscribe(out[0..en], 70000);
     assert(st == honkmqtt::OK && used == en && id == 1 && ll == 2 + 65535);
