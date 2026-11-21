@@ -14,11 +14,12 @@ MQTT 5 are not part of the initial codec scope. Whether to build a client or
 MQTT 5 support is a later product decision, not an implicit commitment.
 
 As of M0 Exit on `cf8dbed`, M1 Exit on `fc12ece` (`encode_publish` baselines),
-and M2 slices for the PUBACK family, CONNACK, CONNECT, and SUBSCRIBE/SUBACK,
-the library has fixed-header parsing, bounded frame detection, opaque-body
-encoding, PUBLISH parse/encode with limit vectors, PUBACK/PUBREC/PUBREL/PUBCOMP,
-CONNACK, CONNECT, and SUBSCRIBE/SUBACK parse/encode, UTF-8/topic validation,
-and topic-filter matching.
+and the M2 control-packet codec (all 14 MQTT 3.1.1 types with typed
+parse/encode), the library has fixed-header parsing, bounded frame detection,
+opaque-body encoding, PUBLISH parse/encode with limit vectors, PUBACK/PUBREC/
+PUBREL/PUBCOMP, CONNACK, CONNECT, SUBSCRIBE/SUBACK, UNSUBSCRIBE/UNSUBACK,
+PINGREQ/PINGRESP/DISCONNECT parse/encode, UTF-8/topic validation, and
+topic-filter matching.
 `scripts/test.py` is the repeatable local test entry point;
 `.github/workflows/ci.yml` pins Goose v2026.4 and runs lint plus interpreter
 and native tests on `ubuntu-24.04` and `windows-2022` (x64).
@@ -133,7 +134,7 @@ QoS state-machine or broker interoperability claim follows from this milestone.
 **M1 Exit criteria satisfied** by that evidence (still not a conformance or
 security claim; main tip updates when this slice merges).
 
-### M2 — MQTT 3.1.1 control-packet codec (in progress)
+### M2 — MQTT 3.1.1 control-packet codec
 
 - [x] PUBACK/PUBREC/PUBREL/PUBCOMP parse and encode (fixed 4-byte Packet
   Identifier acknowledgements; OASIS MQTT 3.1.1 §§2.2.2–2.2.3, 2.3.1, 3.4–3.7).
@@ -165,21 +166,23 @@ security claim; main tip updates when this slice merges).
   `encode_unsuback` in `honkmqtt.goose`; independent vectors in
   `tests/unsubscribe.goose`; API matrix; README. Structural only—no
   UNSUBSCRIBE↔UNSUBACK pairing or session state.
-- [ ] PINGREQ/PINGRESP (typed helpers; opaque `encode`/`frame` already cover
-  the 2-byte empty forms structurally)
-- [ ] DISCONNECT
-- For each remaining packet specify its fields and flags, mandatory lengths,
-  identifier rules, list/string validation, malformed/truncated behavior, and
-  limits from the relevant normative standard sections. Define
-  direction/context-dependent checks separately from structural validation.
+- [x] PINGREQ/PINGRESP/DISCONNECT parse and encode (exact 2-byte empty fixed
+  headers `C0 00` / `D0 00` / `E0 00`; OASIS MQTT 3.1.1 §§2.2, 3.12–3.14).
+  Evidence: `pingreq` / `encode_pingreq`, `pingresp` / `encode_pingresp`,
+  `disconnect` / `encode_disconnect` with shared empty-control helpers and
+  `PINGREQ`/`PINGRESP`/`DISCONNECT` constants in `honkmqtt.goose`; independent
+  vectors in `tests/empty_control.goose`; API matrix; README. Structural
+  only—no Keep Alive timers, pairing, or session/Will policy. Opaque
+  `encode`/`frame` still accept the same wire forms.
 - Preserve compatibility of existing APIs or document and justify any breaking
   change. Do not present generic frame/encode as packet-body validation.
 
 **Exit:** every MQTT 3.1.1 control-packet type has documented parse and encode
 support, independent valid/invalid vectors and boundary tests. Track any
 intentional protocol deviations, including non-minimal remaining lengths.
-M2 remains **in progress** until the unchecked packet groups above are
-evidenced.
+**M2 Exit criteria satisfied locally** by that evidence on this branch (still
+not a conformance, security, or interoperability claim; main tip updates when
+this slice merges). M3 peer/broker integration remains separate.
 
 ### M3 — Integration and interoperability evidence
 
