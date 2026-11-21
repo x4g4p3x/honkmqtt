@@ -35,13 +35,14 @@ This is interoperability evidence, not certification or a stable network stack.
 | Per-case wall timeout | 15.0 s (watchdog kills Goose child / unblocks pipe) |
 | Send ack | one `socket.send`; reply u16be count |
 | Peer close | drain all complete buffered frames before RECV/EOF; bridge EOF/RESET only |
-| Aedes ready | `wait_port` + `child.poll` (≤5 s); kill/reap + stderr on failure |
+| Aedes ready | bind `127.0.0.1:0`; bounded `AEDES_READY <port>` banner (≤5 s); kill/reap |
+| Mosquitto ready | child stderr information `Opening ipv4 listen socket on port N` (≤5 s); kill/reap |
 
 ## Brokers and prerequisites
 
 | Component | Version / note |
 |-----------|----------------|
-| Eclipse Mosquitto | **2.0.18** (`2.0.18-1build3`, apt) |
+| Eclipse Mosquitto | **2.0.18** (`2.0.18-1build3`, extract via `--extract-mosquitto`) |
 | Aedes | **0.51.3** (pinned in `brokers/package.json` + `package-lock.json`) |
 | Python | **3.12.3** (`3.12.3 (main, Jul 15 2026, 23:46:41) [GCC 13.3.0]`) |
 | Node | **v18.19.1** |
@@ -60,7 +61,7 @@ unit** so it would not compete on port 1883. Ephemeral harness listeners do
 `systemd` units. Leave any pre-existing Mosquitto install as you found it.
 
 Ephemeral Mosquitto config from `brokers/mosquitto.conf.in` (template SHA-256
-`897c76cfb87479d96d67651116d914a83a2b686b2c71b308ce85247cd4973c3b`); runtime
+`cd11afe53123556f1fb42dccdbbec5d68a3afff2eb940822afd85a91418518bb`); runtime
 file substitutes `@PORT@`. Aedes entrypoint SHA-256 is recorded per run in
 `interop_results.json` (`broker_conf_sha256` for aedes rows).
 
@@ -78,15 +79,28 @@ python3 examples/tcp/run_interop.py --goose "$GOOSE" --extract-mosquitto \
 
 `--extract-mosquitto` runs `apt-get download mosquitto=2.0.18-1build3` then
 `dpkg-deb -x` into a fresh work directory and prepends that tree's
-`usr/sbin` (or `usr/bin`) to `PATH`. Provenance lands in
-`meta.mosquitto_provenance`. Without the flag, the host `PATH` binary is
-recorded as reused.
+`usr/sbin` (or `usr/bin`) to `PATH`. It records `dpkg-deb -f Depends` and
+`ldd` under `meta.mosquitto_provenance.runtime`, and fails if shared libs are
+missing. On a clean Ubuntu 24.04 host, install **only** these runtime packages
+(not the `mosquitto` package, which would enable `mosquitto.service`):
+
+```bash
+sudo apt-get install --no-install-recommends \
+  libc6 libdlt2 libssl3t64 libsystemd0 libwebsockets19t64 libwrap0
+```
+
+Without `--extract-mosquitto`, the host `PATH` binary is recorded as reused.
+Mosquitto readiness is this child's information log line
+`Opening ipv4 listen socket on port N` (line-buffered via `stdbuf` when
+available; not a foreign `wait_port`).
 
 Aedes always gets `npm ci --no-fund --no-audit` from the pinned
 `brokers/package-lock.json` into an **owned** `TemporaryDirectory` (optional
 `HONKMQTT_AEDES_NPM` is only the parent). The install lives for the whole
 six-case matrix, then that directory alone is cleaned. Provenance:
-`meta.aedes_provenance`. Readiness is `wait_port` + `child.poll`.
+`meta.aedes_provenance`. The server binds `127.0.0.1:0` and emits
+`AEDES_READY <port>` via `writeSync`; the harness reads that banner with
+`select`/`os.read` under a hard deadline (never blocking `readline`).
 
 ## Case matrix (recorded after acceptance fixes)
 

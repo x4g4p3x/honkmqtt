@@ -12,6 +12,8 @@ import argparse
 import hashlib
 import json
 import os
+import re
+import select
 import shutil
 import signal
 import socket
@@ -73,6 +75,156 @@ def wait_port(
     raise RuntimeError(f"port {host}:{port} not ready: {last}")
 
 
+AEDES_READY_RE = re.compile(r"^AEDES_READY ([1-9][0-9]{0,4})$")
+MOSQ_LISTEN_RE = re.compile(
+    r"Opening ipv4 listen socket on port ([1-9][0-9]{0,4})\."
+)
+# Shared libraries needed to run an extracted Mosquitto binary on Ubuntu 24.04
+# without installing the mosquitto package / enabling mosquitto.service.
+MOSQUITTO_HOST_RUNTIME_PKGS = (
+    "libc6",
+    "libdlt2",
+    "libssl3t64",
+    "libsystemd0",
+    "libwebsockets19t64",
+    "libwrap0",
+)
+
+
+def kill_reap(proc: subprocess.Popen, logf=None) -> None:
+    try:
+        if proc.poll() is None:
+            proc.kill()
+        proc.wait(timeout=2)
+    except Exception:
+        pass
+    if logf is not None:
+        try:
+            logf.close()
+        except Exception:
+            pass
+
+
+def read_aedes_ready_port(
+    proc: subprocess.Popen,
+    timeout_s: float = 5.0,
+    max_bytes: int = 64,
+) -> int:
+    """Read ``AEDES_READY <port>\\n`` with a hard deadline (no blocking readline)."""
+    if proc.stdout is None:
+        raise RuntimeError("aedes stdout not piped")
+    deadline = time.monotonic() + timeout_s
+    buf = bytearray()
+    fd = proc.stdout.fileno()
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"aedes exited before ready rc={proc.returncode}")
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
+        readable, _, _ = select.select([fd], [], [], left)
+        if not readable:
+            break
+        try:
+            chunk = os.read(fd, 32)
+        except OSError as exc:
+            raise RuntimeError(f"aedes ready read failed: {exc}") from exc
+        if not chunk:
+            break
+        buf.extend(chunk)
+        if len(buf) > max_bytes:
+            raise RuntimeError(f"aedes ready banner oversized ({len(buf)}>{max_bytes})")
+        if b"\n" in buf:
+            line = buf.split(b"\n", 1)[0].decode("ascii", errors="replace").strip()
+            m = AEDES_READY_RE.match(line)
+            if not m:
+                raise RuntimeError(f"aedes ready banner malformed: {line!r}")
+            port = int(m.group(1))
+            if port > 65535:
+                raise RuntimeError(f"aedes ready port out of range: {port}")
+            return port
+    raise RuntimeError(
+        f"aedes ready banner timeout; buf={bytes(buf)!r} live={proc.poll() is None}"
+    )
+
+
+def wait_mosquitto_listen_log(
+    proc: subprocess.Popen,
+    log_path: Path,
+    expect_port: int,
+    timeout_s: float = 5.0,
+) -> None:
+    """Require this child's stderr log to report binding ``expect_port``."""
+    needle = f"Opening ipv4 listen socket on port {expect_port}."
+    deadline = time.monotonic() + timeout_s
+    last = ""
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            try:
+                last = log_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                pass
+            raise RuntimeError(
+                f"mosquitto exited before listen rc={proc.returncode}; log={last[:500]!r}"
+            )
+        try:
+            last = log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            last = ""
+        if needle in last:
+            m = MOSQ_LISTEN_RE.search(last)
+            if m and int(m.group(1)) != expect_port:
+                raise RuntimeError(
+                    f"mosquitto listen port mismatch log={m.group(1)} expect={expect_port}"
+                )
+            return
+        time.sleep(0.05)
+    raise RuntimeError(
+        f"mosquitto listen log timeout expecting {needle!r}; log={last[:500]!r}"
+    )
+
+
+def diagnose_mosquitto_runtime(binary: Path, deb: Path) -> Dict:
+    """Record Depends + ldd; flag missing shared libs for host-runtime packages."""
+    depends = ""
+    try:
+        depends = subprocess.check_output(
+            ["dpkg-deb", "-f", str(deb), "Depends"],
+            text=True,
+            stderr=subprocess.STDOUT,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError) as exc:
+        depends = f"<dpkg-deb -f Depends failed: {exc}>"
+    ldd_out = ""
+    missing: List[str] = []
+    try:
+        proc = subprocess.run(
+            ["ldd", str(binary)],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        ldd_out = proc.stdout or ""
+        for line in ldd_out.splitlines():
+            if "not found" in line:
+                missing.append(line.strip())
+    except OSError as exc:
+        ldd_out = f"<ldd failed: {exc}>"
+    return {
+        "depends": depends,
+        "ldd": ldd_out.strip(),
+        "missing_shared_libs": missing,
+        "host_runtime_packages_ubuntu_24_04": list(MOSQUITTO_HOST_RUNTIME_PKGS),
+        "host_runtime_note": (
+            "Install these shared-library packages on a clean Ubuntu 24.04 host to "
+            "run an extracted mosquitto binary. Do not apt-install the mosquitto "
+            "package itself if you want to avoid enabling mosquitto.service."
+        ),
+        "ok": len(missing) == 0,
+    }
+
+
 class BrokerProc:
     def __init__(self, name: str, version: str, port: int, proc: subprocess.Popen, conf_hash: str):
         self.name = name
@@ -96,6 +248,24 @@ def start_mosquitto(workdir: Path) -> BrokerProc:
     mosq = which("mosquitto")
     if not mosq:
         raise RuntimeError("mosquitto not found on PATH")
+    # Fail early with a clear diagnostic if extracted binary lacks host libs.
+    try:
+        ldd = subprocess.run(
+            ["ldd", mosq],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            check=False,
+        )
+        missing = [ln.strip() for ln in (ldd.stdout or "").splitlines() if "not found" in ln]
+        if missing:
+            raise RuntimeError(
+                "mosquitto shared libraries missing (install host runtime packages "
+                f"without the mosquitto package): {missing}; "
+                f"suggested apt packages: {', '.join(MOSQUITTO_HOST_RUNTIME_PKGS)}"
+            )
+    except FileNotFoundError:
+        pass
     ver_proc = subprocess.run(
         [mosq, "-h"], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     )
@@ -104,6 +274,8 @@ def start_mosquitto(workdir: Path) -> BrokerProc:
         if line.lower().startswith("mosquitto version"):
             version = line.split()[-1]
             break
+    # Still pick an ephemeral port for the conf; ownership is proven by this
+    # child's listen notice log (not by free_port + foreign wait_port).
     port = free_port()
     workdir.mkdir(parents=True, exist_ok=True)
     template = (BROKERS / "mosquitto.conf.in").read_text(encoding="utf-8")
@@ -112,18 +284,24 @@ def start_mosquitto(workdir: Path) -> BrokerProc:
     conf_path.write_text(conf_text, encoding="utf-8")
     conf_hash = hashlib.sha256(conf_text.encode("utf-8")).hexdigest()
     log_path = workdir / "mosquitto.log"
-    logf = open(log_path, "wb")
+    logf = open(log_path, "wb", buffering=0)
+    cmd = [mosq, "-c", str(conf_path)]
+    # Line-buffer stderr so the listen notice is visible before case traffic.
+    stdbuf = which("stdbuf")
+    if stdbuf:
+        cmd = [stdbuf, "-oL", "-eL", *cmd]
     proc = subprocess.Popen(
-        [mosq, "-c", str(conf_path)],
+        cmd,
         stdout=logf,
         stderr=subprocess.STDOUT,
         cwd=str(workdir),
     )
     try:
-        wait_port("127.0.0.1", port)
+        wait_mosquitto_listen_log(proc, log_path, port, timeout_s=5.0)
+        if proc.poll() is not None:
+            raise RuntimeError(f"mosquitto exited after listen rc={proc.returncode}")
     except Exception:
-        proc.kill()
-        logf.close()
+        kill_reap(proc, logf)
         raise
     return BrokerProc("mosquitto", version, port, proc, conf_hash)
 
@@ -235,6 +413,13 @@ def extract_mosquitto_deb(
     # Prepend the directory that actually contains the binary.
     bin_dir = str(binary.parent)
     os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+    runtime = diagnose_mosquitto_runtime(binary, deb)
+    if not runtime["ok"]:
+        raise RuntimeError(
+            "extracted mosquitto missing shared libraries; install host runtime "
+            f"packages {MOSQUITTO_HOST_RUNTIME_PKGS} (not the mosquitto package): "
+            f"{runtime['missing_shared_libs']}"
+        )
     provenance = {
         "method": "apt-get download + dpkg-deb -x (no dpkg -i; system unit untouched)",
         "requested_pin": pin,
@@ -246,12 +431,13 @@ def extract_mosquitto_deb(
         "path_prepend": bin_dir,
         "download_command": " ".join(download_cmd),
         "extract_command": " ".join(extract_cmd),
+        "runtime": runtime,
     }
     return binary, provenance
 
 
 def start_aedes(workdir: Path, install: Path) -> BrokerProc:
-    """Start Aedes; readiness is port listen + live child (no stdout banner)."""
+    """Start Aedes on 127.0.0.1:0; readiness from bounded AEDES_READY banner."""
     node = which("node") or which("node.exe")
     if not node:
         raise RuntimeError("node not found on PATH")
@@ -262,31 +448,23 @@ def start_aedes(workdir: Path, install: Path) -> BrokerProc:
         version = json.loads((BROKERS / "package.json").read_text(encoding="utf-8"))[
             "dependencies"
         ]["aedes"]
-    port = free_port()
     conf_hash = sha256_file(BROKERS / "aedes_server.js")
     log_path = workdir / "aedes.log"
     logf = open(log_path, "wb")
-    # Discard stdout; readiness is wait_port + poll (silent children time out).
+    # Port 0: kernel assigns; child emits the bound port — no free_port TOCTOU.
     proc = subprocess.Popen(
-        [node, str(install / "aedes_server.js"), str(port)],
-        stdout=subprocess.DEVNULL,
+        [node, str(install / "aedes_server.js"), "0"],
+        stdout=subprocess.PIPE,
         stderr=logf,
         cwd=str(install),
+        bufsize=0,
     )
     try:
-        wait_port("127.0.0.1", port, timeout_s=5.0, child=proc)
+        port = read_aedes_ready_port(proc, timeout_s=5.0)
         if proc.poll() is not None:
             raise RuntimeError(f"aedes exited during startup rc={proc.returncode}")
     except Exception as exc:
-        try:
-            proc.kill()
-        except OSError:
-            pass
-        try:
-            proc.wait(timeout=2)
-        except Exception:
-            pass
-        logf.close()
+        kill_reap(proc, logf)
         err = ""
         try:
             err = Path(log_path).read_text(encoding="utf-8", errors="replace")[:500]
@@ -470,7 +648,7 @@ def main() -> int:
         "aedes_install": (
             "npm ci --no-fund --no-audit from brokers/package-lock.json into an "
             "owned TemporaryDirectory (optional HONKMQTT_AEDES_NPM parent only); "
-            "readiness via wait_port + child.poll (no stdout banner)"
+            "listen 127.0.0.1:0 and read bounded AEDES_READY <port> banner"
         ),
     }
 

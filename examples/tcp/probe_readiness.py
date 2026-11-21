@@ -3,17 +3,15 @@
 
 from __future__ import annotations
 
-import socket
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from bridge import BridgeError, connect_tcp  # noqa: E402
-from run_interop import wait_port  # noqa: E402
+from run_interop import kill_reap, read_aedes_ready_port  # noqa: E402
 
 
 def probe_expired_connect() -> None:
@@ -28,39 +26,35 @@ def probe_expired_connect() -> None:
     raise AssertionError("expired connect_tcp should fail")
 
 
-def probe_silent_child_timeout() -> None:
-    # Child that never binds; wait_port must time out and leave it for reap.
+def probe_silent_aedes_banner() -> None:
+    # Child keeps stdout open but never emits AEDES_READY — must time out + reap.
     child = subprocess.Popen(
-        [sys.executable, "-c", "import time; time.sleep(30)"],
-        stdout=subprocess.DEVNULL,
+        [sys.executable, "-c", "import time, sys; time.sleep(30)"],
+        stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
+        bufsize=0,
     )
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", 0))
-    port = int(sock.getsockname()[1])
-    sock.close()  # nothing listening
     t0 = time.monotonic()
     try:
-        wait_port("127.0.0.1", port, timeout_s=0.4, child=child)
-        raise AssertionError("wait_port should time out for silent non-listener")
+        read_aedes_ready_port(child, timeout_s=0.4)
+        raise AssertionError("silent child should not report AEDES_READY")
     except RuntimeError as exc:
         elapsed = time.monotonic() - t0
         if elapsed > 1.5:
-            raise AssertionError(f"wait_port not deadline-aware: {elapsed:.2f}s") from exc
-        if "not ready" not in str(exc):
-            raise AssertionError(f"unexpected wait_port error: {exc}") from exc
+            raise AssertionError(f"banner wait not deadline-aware: {elapsed:.2f}s") from exc
+        if "timeout" not in str(exc):
+            raise AssertionError(f"unexpected ready error: {exc}") from exc
     finally:
         if child.poll() is None:
-            child.kill()
-            child.wait(timeout=2)
+            kill_reap(child)
         else:
             raise AssertionError("silent child exited unexpectedly during probe")
-    print("ok: silent-child wait_port times out and child is reaped")
+    print("ok: silent-child AEDES_READY banner times out and child is reaped")
 
 
 def main() -> int:
     probe_expired_connect()
-    probe_silent_child_timeout()
+    probe_silent_aedes_banner()
     print("probe_readiness: PASS")
     return 0
 

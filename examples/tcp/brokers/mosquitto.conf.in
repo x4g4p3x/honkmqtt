@@ -7,4 +7,6 @@ connection_messages false
 log_dest stderr
 log_type error
 log_type warning
+# information: "Opening ipv4 listen socket on port N" proves this child bound.
+log_type information
 protocol mqtt
