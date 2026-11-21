@@ -36,12 +36,12 @@ This is an early foundation, **not a complete MQTT client or a complete MQTT 3.1
   header (`C0 00`, `D0 00`, `E0 00`).
 - UTF-8 and topic name/filter checks, including wildcard matching and the `$` topic rule.
 
-An optional companion package `stream/` provides a bounded byte-stream adapter
-(`feed` / `shift_rx` / `enqueue` / `drain` / `shift_tx` / `on_eof`) over
-caller-owned RX/TX buffers. It does **not** live in the HonkMQTT core and does
-not perform network I/O; callers apply `honkmqtt::frame` (or typed parsers) to
-`rx[0..rx_len]` with their own `max_body`. See `examples/transport.goose` and
-`tests/transport.goose`.
+An optional **example-only** helper under `examples/stream/` provides a bounded
+byte-stream adapter (`feed` / `commit_rx` / `enqueue` / `drain` / `commit_tx` /
+`on_eof`) over caller-owned RX/TX buffers with start/end cursors. It is not a
+stable HonkMQTT core API and does not perform network I/O; callers apply
+`honkmqtt::frame` (or typed parsers) to the live RX window with their own
+`max_body`. See `examples/transport.goose` and `tests/transport.goose`.
 
 It does **not** validate application payloads, implement QoS/session state,
 perform network I/O, support MQTT 5 properties, or claim protocol conformance.
@@ -203,27 +203,32 @@ write those two bytes (`NO_SPACE` if `out` is shorter than 2) and leave `out`
 unchanged on failure. Opaque `encode`/`frame` still accept the same wire forms
 structurally; these helpers are the typed packet APIs.
 
-### Bounded transport adapter (`stream`)
+### Bounded transport adapter (`examples/stream`)
 
-`stream` is a reusable feed/drain helper for fixed-capacity RX/TX buffers
-(M3 evidence; not a socket stack):
+Example-only feed/drain helper for fixed-capacity RX/TX buffers (M3 evidence;
+not a socket stack or stable core API):
 
-- **Bounds:** choose `max_body`, set RX capacity ≥ `max_body + stream::HEADER_MAX`
-  (5). TX capacity bounds queued outbound bytes before `enqueue` returns
-  `NO_SPACE` (backpressure).
-- **Feed:** `feed(rx, rx_len, src, max_n)` appends at most `max_n` bytes
-  (deterministic short reads). `max_n == 0` or empty `src` → `WAIT` with buffers
-  unchanged (zero progress; do not busy-spin). Full RX with more source →
-  `NO_SPACE`.
-- **Frame:** call `honkmqtt::frame(rx[0..rx_len], max_body)`; on `OK`, handle
-  `rx[0..used]` then `shift_rx`. Incomplete frames stay buffered; malformed
-  frames leave RX unconsumed (`consumed == 0` from the codec).
-- **Enqueue / drain:** `enqueue` is atomic (whole packet or `NO_SPACE`).
-  `drain(tx_len, max_n)` reports a short-write size without mutating TX; after a
-  real write, `shift_tx`. Empty TX or `max_n == 0` → `WAIT`.
-- **EOF:** `on_eof(rx_len)` → `CLOSED` if empty, else `TRUNCATED`.
+- **Bounds:** choose `max_body` in `0..MAX_BODY-HEADER_MAX`, set RX capacity ≥
+  `rx_capacity_for(max_body)` (rejects out-of-range `max_body`). TX capacity
+  bounds queued outbound bytes before `enqueue` returns `NO_SPACE`.
+- **Cursors:** pending bytes are `buf[start..end)`. `commit_rx` / `commit_tx`
+  advance `start` only (no per-write memmove). `compact` runs inside
+  `feed`/`enqueue` only when the tail is full but headroom exists at the front.
+- **Non-overlap:** `feed` source must not overlap the RX write range
+  `rx[end..)`; `enqueue` packet must not overlap `tx[end..)`.
+- **Frame views:** `rx[start..end)` is valid only until the next
+  `feed`/`commit_rx`/`compact` that changes cursors or moves bytes—finish
+  parsing or copy first.
+- **Feed / frame:** `feed(..., max_n)` models short reads; `WAIT` on zero
+  progress. Call `honkmqtt::frame(rx[start..end], max_body)`; on `OK` handle
+  then `commit_rx`. Stop on fatal `INVALID`. Incomplete frames stay buffered.
+- **Enqueue / drain:** atomic `enqueue`; `drain` reports a short-write length
+  from `tx[start)`; after a real write, `commit_tx`. Empty or `max_n == 0` →
+  `WAIT`.
+- **EOF:** after no complete frame remains, `on_eof(pending)` → `CLOSED` if
+  empty, else `TRUNCATED` (incomplete prefix).
 
-Root programs that use both packages must declare both imports (Goose declares
+Root programs must declare both `honkmqtt` and `stream` imports (Goose declares
 packages from the root file only).
 
 ## Use

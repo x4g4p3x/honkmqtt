@@ -188,12 +188,14 @@ security, or interoperability claim).
 
 - [x] Bounded transport adapter example that handles partial reads and writes
   without making the core own I/O; explicitly bound buffering. Evidence:
-  companion package `stream/stream.goose` (`feed`/`enqueue`/`drain`/`shift_*`/
-  `on_eof`, `HEADER_MAX`, `WAIT`/`NO_SPACE`/`CLOSED`/`TRUNCATED`); runnable
-  `examples/transport.goose`; independent short-I/O / multibyte-header /
-  adjacency / EOF / backpressure / exact-order vectors in
-  `tests/transport.goose`; README adapter contract. Core `honkmqtt.goose`
-  unchanged. Deterministic simulation only—not real sockets.
+  example-only `examples/stream/stream.goose` (start/end cursors,
+  `feed`/`commit_rx`/`enqueue`/`drain`/`commit_tx`/`on_eof`, compact only when
+  needed, bounded `rx_capacity_for`); runnable `examples/transport.goose`;
+  independent short-I/O / multibyte-header / adjacency / EOF-incomplete-vs-
+  complete / fatal-framing / backpressure / commit-only TX vectors in
+  `tests/transport.goose`; README contract (non-overlap, view lifetimes).
+  Core `honkmqtt.goose` unchanged. Deterministic simulation only—not real
+  sockets.
 - [ ] Test packet exchange with at least two independently implemented MQTT
   3.1.1 peers/brokers, including malformed input and reconnect scenarios where
   applicable. Record exact versions, setups, cases, and results.

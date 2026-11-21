@@ -1,15 +1,14 @@
-// Runnable M3 bounded transport-adapter demo.
-// Uses the reusable `stream` byte-stream package with deterministic short I/O
-// and HonkMQTT framing on caller-owned buffers (core unchanged).
+// Runnable M3 bounded transport-adapter demo (example-only helper).
+// Deterministic short I/O over caller-owned buffers; HonkMQTT core unchanged.
 import honkmqtt from "..";
-import stream from "../stream";
+import stream from "./stream";
 
 const RX_CAP = 64;
 const TX_CAP = 32;
 const MAX_BODY = RX_CAP - stream::HEADER_MAX;
 
-fn try_frame(rx: const u8[:], rx_len: i64) -> i64, i64 {
-    return honkmqtt::frame(rx[0..rx_len], MAX_BODY);
+fn try_frame(rx: const u8[:], start: i64, end: i64) -> i64, i64 {
+    return honkmqtt::frame(rx[start..end], MAX_BODY);
 }
 
 fn main() {
@@ -17,54 +16,69 @@ fn main() {
 
     var rx: u8[RX_CAP] = [0; RX_CAP];
     var tx: u8[TX_CAP] = [0; TX_CAP];
-    var rx_len = 0;
-    var tx_len = 0;
+    var rx_s = 0;
+    var rx_e = 0;
+    var tx_s = 0;
+    var tx_e = 0;
     var frames = 0;
+    var fatal = false;
 
     // Scripted peer bytes: PINGREQ, PINGRESP, DISCONNECT (independent wire).
     let peer: u8[6] = [0xc0, 0x00, 0xd0, 0x00, 0xe0, 0x00];
     var pos = 0;
 
-    // Feed at most one byte per turn (short reads); never spin on WAIT.
-    while pos < peer.len {
-        let st, nl, taken = stream::feed(rx, rx_len, peer[pos..peer.len], 1);
-        if st == stream::WAIT {
-            // Zero progress: retain RX and stop this turn (no busy loop).
+    while pos < peer.len && !fatal {
+        let st, ns, ne, taken = stream::feed(rx, rx_s, rx_e, peer[pos..peer.len], 1);
+        if st == stream::WAIT { break; }
+        if st != stream::OK {
+            fatal = true;
             break;
         }
-        assert(st == stream::OK && taken == 1);
-        rx_len = nl;
+        rx_s = ns;
+        rx_e = ne;
         pos += taken;
 
         loop {
-            let fs, used = try_frame(rx, rx_len);
+            let fs, used = try_frame(rx, rx_s, rx_e);
             if fs == honkmqtt::INCOMPLETE { break; }
-            assert(fs == honkmqtt::OK && used >= 2);
-            // Echo the exact frame bytes onto TX (may backpressure).
-            let es, ntx = stream::enqueue(tx, tx_len, rx[0..used]);
-            assert(es == stream::OK);
-            tx_len = ntx;
-            let _, nrx = stream::shift_rx(rx, rx_len, used);
-            rx_len = nrx;
+            if fs != honkmqtt::OK {
+                fatal = true;
+                break;
+            }
+            // Frame view rx[rx_s..rx_s+used) expires after enqueue/commit_rx.
+            let es, ts, te = stream::enqueue(tx, tx_s, tx_e, rx[rx_s..rx_s + used]);
+            if es != stream::OK {
+                fatal = true;
+                break;
+            }
+            tx_s = ts;
+            tx_e = te;
+            let cs, rs, re = stream::commit_rx(rx_s, rx_e, used);
+            assert(cs == stream::OK);
+            rx_s = rs;
+            rx_e = re;
             frames += 1;
         }
     }
-    assert(pos == peer.len && frames == 3 && rx_len == 0);
-    assert(stream::on_eof(rx_len) == stream::CLOSED);
+    assert(!fatal && pos == peer.len && frames == 3);
+    assert(stream::pending(rx_s, rx_e) == 0);
+    assert(stream::on_eof(stream::pending(rx_s, rx_e)) == stream::CLOSED);
 
-    // Drain TX with short writes of one byte; retain remainder each turn.
+    // Short writes: commit advances start only (no per-write TX shift).
     var out: u8[6] = [0; 6];
     var out_len = 0;
-    while tx_len > 0 {
-        let ds, n = stream::drain(tx_len, 1);
+    while stream::pending(tx_s, tx_e) > 0 {
+        let ds, n = stream::drain(tx_s, tx_e, 1);
         if ds == stream::WAIT { break; }
         assert(ds == stream::OK && n == 1);
-        out[out_len] = tx[0];
+        out[out_len] = tx[tx_s];
         out_len += 1;
-        let _, ntx = stream::shift_tx(tx, tx_len, n);
-        tx_len = ntx;
+        let cs, ns, ne = stream::commit_tx(tx_s, tx_e, n);
+        assert(cs == stream::OK);
+        tx_s = ns;
+        tx_e = ne;
     }
-    assert(out_len == 6 && tx_len == 0);
+    assert(out_len == 6 && stream::pending(tx_s, tx_e) == 0);
     for i in 6 { assert(out[i] == peer[i]); }
 
     print(
