@@ -48,5 +48,20 @@ fn main() {
     assert(uas == honkmqtt::OK && uan == 4);
     let uaks, uaku, uakid = honkmqtt::unsuback(ua);
     assert(uaks == honkmqtt::OK && uaku == 4 && uakid == 1);
-    print("PINGREQ frame: ", size, " bytes; PUBLISH encoded: ", n, " bytes; PUBACK id=", rid, "; CONNACK rc=", rc, "; CONNECT id_len=", yl, "; SUBSCRIBE id=", pid, "; UNSUBSCRIBE id=", upid);
+    var ping: u8[2] = [0; 2];
+    let pqs, pqn = honkmqtt::encode_pingreq(ping);
+    assert(pqs == honkmqtt::OK && pqn == 2);
+    let pqs2, pqu = honkmqtt::pingreq(ping);
+    assert(pqs2 == honkmqtt::OK && pqu == 2);
+    var pr: u8[2] = [0; 2];
+    let prs, prn = honkmqtt::encode_pingresp(pr);
+    assert(prs == honkmqtt::OK && prn == 2);
+    let prs2, pru = honkmqtt::pingresp(pr);
+    assert(prs2 == honkmqtt::OK && pru == 2);
+    var disc: u8[2] = [0; 2];
+    let ds, dn = honkmqtt::encode_disconnect(disc);
+    assert(ds == honkmqtt::OK && dn == 2);
+    let ds2, du = honkmqtt::disconnect(disc);
+    assert(ds2 == honkmqtt::OK && du == 2);
+    print("PINGREQ frame: ", size, " bytes; PUBLISH encoded: ", n, " bytes; PUBACK id=", rid, "; CONNACK rc=", rc, "; CONNECT id_len=", yl, "; SUBSCRIBE id=", pid, "; UNSUBSCRIBE id=", upid, "; PING/DISCONNECT ok");
 }

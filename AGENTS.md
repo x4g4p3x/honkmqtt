@@ -14,11 +14,12 @@ Project-specific Codex workflows are in `.agents/skills/`.
   `python scripts/test.py` (normal and `--debug` interpreter runs for
   `tests/test.goose`, `tests/publish.goose`, `tests/publish_encode.goose`,
   `tests/pubresp.goose`, `tests/connack.goose`, `tests/connect.goose`,
-  `tests/subscribe.goose`, `tests/unsubscribe.goose`, `tests/coverage.goose`,
-  `tests/api.goose`, and `tests/fuzz.goose`). Add `--native` to build and run
-  those programs when `goose toolchain` reports a C compiler, and
-  `--require-native` when native success is mandatory. Run
-  `python scripts/test_selftest.py` after changing the entry point.
+  `tests/subscribe.goose`, `tests/unsubscribe.goose`,
+  `tests/empty_control.goose`, `tests/coverage.goose`, `tests/api.goose`, and
+  `tests/fuzz.goose`). Add `--native` to build and run those programs when
+  `goose toolchain` reports a C compiler, and `--require-native` when native
+  success is mandatory. Run `python scripts/test_selftest.py` after changing
+  the entry point.
   Individual `goose tests/...` commands remain valid. Do not invent a Goose
   source-coverage percentage; v2026.4 has no such tool. For fuzz changes, keep
   the default seed/case count reproducible and save fixed regressions.

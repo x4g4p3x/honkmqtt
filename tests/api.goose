@@ -293,6 +293,39 @@ fn unsuback_statuses() {
     for i in tiny.len { assert(tiny[i] == 0xcc); }
 }
 
+fn empty_control_statuses() {
+    let ok, used = honkmqtt::pingreq([0xc0, 0x00]);
+    assert(ok == honkmqtt::OK && used == 2);
+    let inc, iu = honkmqtt::pingreq([0xc0]);
+    assert(inc == honkmqtt::INCOMPLETE && iu == 0);
+    let bad, bu = honkmqtt::pingreq([0xc0, 0x01]);
+    assert(bad == honkmqtt::INVALID && bu == 0);
+    var out: u8[2] = [0xaa, 0xaa];
+    let es, en = honkmqtt::encode_pingreq(out);
+    assert(es == honkmqtt::OK && en == 2 && out[0] == 0xc0 && out[1] == 0x00);
+    var tiny: u8[1] = [0xbb];
+    let nos, nn = honkmqtt::encode_pingreq(tiny);
+    assert(nos == honkmqtt::NO_SPACE && nn == 0 && tiny[0] == 0xbb);
+
+    let rok, ru = honkmqtt::pingresp([0xd0, 0x00]);
+    assert(rok == honkmqtt::OK && ru == 2);
+    let rbad, rbu = honkmqtt::pingresp([0xc0, 0x00]);
+    assert(rbad == honkmqtt::INVALID && rbu == 0);
+    out[0] = 0xaa;
+    out[1] = 0xaa;
+    let res, ren = honkmqtt::encode_pingresp(out);
+    assert(res == honkmqtt::OK && ren == 2 && out[0] == 0xd0);
+
+    let dok, du = honkmqtt::disconnect([0xe0, 0x00]);
+    assert(dok == honkmqtt::OK && du == 2);
+    let dbad, dbu = honkmqtt::disconnect([0xe0, 0x01]);
+    assert(dbad == honkmqtt::INVALID && dbu == 0);
+    out[0] = 0xaa;
+    out[1] = 0xaa;
+    let des, den = honkmqtt::encode_disconnect(out);
+    assert(des == honkmqtt::OK && den == 2 && out[0] == 0xe0 && out[1] == 0x00);
+}
+
 fn main() {
     header_statuses();
     frame_statuses();
@@ -307,6 +340,7 @@ fn main() {
     suback_statuses();
     unsubscribe_statuses();
     unsuback_statuses();
+    empty_control_statuses();
     matches_statuses();
     print("API behavioral matrix passed");
 }

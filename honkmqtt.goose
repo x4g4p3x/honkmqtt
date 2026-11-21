@@ -944,6 +944,70 @@ fn encode_unsuback(packet_id: i64, out: u8[:]) -> i64, i64 {
     return OK, 4;
 }
 
+// MQTT 3.1.1 PINGREQ / PINGRESP / DISCONNECT (OASIS §§2.2, 3.12–3.14).
+// Each is exactly two bytes when Remaining Length is encoded minimally:
+// type/flags with reserved flags 0, then Remaining Length 0. No variable
+// header or payload. Shared helpers keep the three typed APIs aligned.
+const PINGREQ = 12;
+const PINGRESP = 13;
+const DISCONNECT = 14;
+
+fn empty_control(input: const u8[:], kind: i64) -> i64, i64 {
+    let status, prefix, body = header(input);
+    if status != OK { return status, 0; }
+    // Wrong type or nonzero Remaining Length is INVALID once the header is
+    // complete, even if later body bytes (for a nonzero RL) have not arrived.
+    if input[0] / 16 != kind || body != 0 { return INVALID, 0; }
+    return OK, prefix;
+}
+
+fn encode_empty_control(first: u8, out: u8[:]) -> i64, i64 {
+    if out.len < 2 { return NO_SPACE, 0; }
+    out[0] = first;
+    out[1] = 0;
+    return OK, 2;
+}
+
+// Parse one PINGREQ. On success returns (OK, 2). On any error consumed is 0;
+// trailing bytes after a complete packet stay unconsumed.
+//
+// Failure precedence (first match wins; consumed is always 0 on error):
+//   propagate header() status (INCOMPLETE/INVALID for truncated or illegal
+//          fixed-header/flags/non-minimal Remaining Length)
+//   INVALID — packet type ≠ PINGREQ (12); or Remaining Length ≠ 0
+fn pingreq(input: const u8[:]) -> i64, i64 {
+    return empty_control(input, PINGREQ);
+}
+
+// Encode one PINGREQ (`C0 00`) into a caller-owned buffer.
+// Failure: NO_SPACE if out is shorter than 2; out unchanged.
+fn encode_pingreq(out: u8[:]) -> i64, i64 {
+    return encode_empty_control(0xc0, out);
+}
+
+// Parse one PINGRESP. On success returns (OK, 2). Same failure precedence as
+// pingreq with type PINGRESP (13) and fixed header `D0 00`.
+fn pingresp(input: const u8[:]) -> i64, i64 {
+    return empty_control(input, PINGRESP);
+}
+
+// Encode one PINGRESP (`D0 00`). Failure: NO_SPACE if out shorter than 2.
+fn encode_pingresp(out: u8[:]) -> i64, i64 {
+    return encode_empty_control(0xd0, out);
+}
+
+// Parse one DISCONNECT. On success returns (OK, 2). Same failure precedence as
+// pingreq with type DISCONNECT (14) and fixed header `E0 00`. No session or
+// Will-clearance policy is applied.
+fn disconnect(input: const u8[:]) -> i64, i64 {
+    return empty_control(input, DISCONNECT);
+}
+
+// Encode one DISCONNECT (`E0 00`). Failure: NO_SPACE if out shorter than 2.
+fn encode_disconnect(out: u8[:]) -> i64, i64 {
+    return encode_empty_control(0xe0, out);
+}
+
 // Returns false for invalid UTF-8, topic names, or wildcard syntax.
 fn matches(filter: const u8[:], topic: const u8[:]) -> bool {
     if !valid_filter(filter) || !valid_topic(topic) { return false; }
