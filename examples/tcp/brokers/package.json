@@ -1,0 +1,9 @@
+{
+  "name": "honkmqtt-m3-aedes-broker",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Pinned Aedes broker for HonkMQTT M3 TCP interop evidence",
+  "dependencies": {
+    "aedes": "0.51.3"
+  }
+}

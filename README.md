@@ -237,6 +237,17 @@ not a socket stack or stable core API):
 Root programs must declare both `honkmqtt` and `stream` imports (Goose declares
 packages from the root file only).
 
+### TCP broker interop (`examples/tcp`)
+
+Goose has no TCP API. M3 interop uses a **Python socket bridge** that owns
+bounded loopback I/O and drives `examples/tcp/session.goose` (stream adapter +
+typed codecs) over length-prefixed stdin/stdout. Independent brokers: Mosquitto
+2.0.18 and Aedes 0.51.3. Scenarios cover positive CONNECT/SUBSCRIBE/PUBLISH/
+PING/DISCONNECT, malformed reserved-type closure (EOF/RESET/TIMEOUT reported
+separately), and reconnect with the same client id. See
+`examples/tcp/INTEROP.md` for bounds, versions, reproduction, and matrix.
+Not a socket stack inside the library and not conformance certification.
+
 ## Use
 
 Install [Goose](https://github.com/aardappel/goose) v2026.4 or newer. Pin a commit or release tag when consuming this pre-release library. For local development:

@@ -1,0 +1,10 @@
+# Ephemeral Mosquitto config template for HonkMQTT M3 interop.
+# Placeholders: @PORT@
+listener @PORT@ 127.0.0.1
+allow_anonymous true
+persistence false
+connection_messages false
+log_dest stderr
+log_type error
+log_type warning
+protocol mqtt

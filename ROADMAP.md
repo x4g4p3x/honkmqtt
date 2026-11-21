@@ -196,9 +196,14 @@ security, or interoperability claim).
   `tests/transport.goose`; README contract (non-overlap, view lifetimes).
   Core `honkmqtt.goose` unchanged. Deterministic simulation only—not real
   sockets.
-- [ ] Test packet exchange with at least two independently implemented MQTT
+- [x] Test packet exchange with at least two independently implemented MQTT
   3.1.1 peers/brokers, including malformed input and reconnect scenarios where
-  applicable. Record exact versions, setups, cases, and results.
+  applicable. Record exact versions, setups, cases, and results. Evidence:
+  `examples/tcp/` — Python TCP bridge + Goose `session.goose` driving
+  `examples/stream` and typed codecs; Mosquitto **2.0.18** and Aedes **0.51.3**
+  on loopback; positive / malformed (EOF vs RESET vs TIMEOUT classified) /
+  reconnect matrix in `examples/tcp/INTEROP.md` and
+  `examples/tcp/interop_results.json`. Core unchanged. Not conformance.
 - [ ] Run a repeatable fuzz/randomized campaign and assess failures, memory
   limits, denial-of-service behavior, and independent protocol vectors. Add
   regressions. (Existing `tests/fuzz.goose` remains a codec smoke campaign, not

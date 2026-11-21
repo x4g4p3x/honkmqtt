@@ -5,3 +5,17 @@
 *.ilk
 __pycache__/
 *.pyc
+examples/tcp/brokers/node_modules/
+tests/transport
+tests/test
+tests/publish
+tests/publish_encode
+tests/pubresp
+tests/connack
+tests/connect
+tests/subscribe
+tests/unsubscribe
+tests/empty_control
+tests/coverage
+tests/api
+tests/fuzz

@@ -1,0 +1,139 @@
+{
+  "meta": {
+    "honkmqtt_root": "/mnt/c/Users/x4g4p/.ao/data/worktrees/honkmqtt/honkmqtt-2",
+    "session_sha256": "4732245045a6cdd1af5f6a2fbe194077cdb5b491d2dd634472694e4fd6a23fa7",
+    "bridge_sha256": "ed5f6fac768fb77003bc34fb0494bf5d4032fa3eb94869d8d79a0ccc13546833",
+    "stream_sha256": "5eaa10314d98df22f761017a656bd353745deb3970e41005914964630c5b1f15",
+    "bounds": {
+      "rx_cap": 256,
+      "tx_cap": 256,
+      "max_body": 251,
+      "recv_max": 64,
+      "ipc_max": 512,
+      "connect_timeout_s": 2.0,
+      "io_timeout_s": 2.0,
+      "case_timeout_s": 15.0
+    },
+    "architecture": "Python TCP bridge owns sockets; Goose session.goose drives examples/stream feed/drain and honkmqtt typed codecs over length-prefixed stdin/stdout IPC. Core honkmqtt.goose unchanged."
+  },
+  "results": [
+    {
+      "broker": "mosquitto",
+      "broker_version": "2.0.18",
+      "broker_conf_sha256": "8d31380bc1c3a03ce2388af1ebf6e07b1f0304bd7c2dc571d0cffc39adda842a",
+      "scenario": "positive",
+      "client_id": "honk-m3-mosquitto-positive",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "BOUNDS rx=256 tx=256 max_body=251 recv_max=64 ipc_max=512",
+        "CONNACK session=0 code=0",
+        "SUBACK id=7 code=0",
+        "PUBLISH qos0 sent",
+        "PUBLISH inbound skipped",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    },
+    {
+      "broker": "mosquitto",
+      "broker_version": "2.0.18",
+      "broker_conf_sha256": "8d31380bc1c3a03ce2388af1ebf6e07b1f0304bd7c2dc571d0cffc39adda842a",
+      "scenario": "malformed",
+      "client_id": "honk-m3-mosquitto-malformed",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "MALFORMED sent type=0",
+        "PEER_CLOSE reason=EOF"
+      ],
+      "peer_close": "EOF",
+      "stderr": ""
+    },
+    {
+      "broker": "mosquitto",
+      "broker_version": "2.0.18",
+      "broker_conf_sha256": "8d31380bc1c3a03ce2388af1ebf6e07b1f0304bd7c2dc571d0cffc39adda842a",
+      "scenario": "reconnect",
+      "client_id": "honk-m3-mosquitto-reconnect",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent",
+        "RECONNECTED",
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    },
+    {
+      "broker": "aedes",
+      "broker_version": "0.51.3",
+      "broker_conf_sha256": "819b586d1f34113f30a9a49f700a475e8e0ab4dfd62b9e2bacadf5b9f50a6f3d",
+      "scenario": "positive",
+      "client_id": "honk-m3-aedes-positive",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "BOUNDS rx=256 tx=256 max_body=251 recv_max=64 ipc_max=512",
+        "CONNACK session=0 code=0",
+        "SUBACK id=7 code=0",
+        "PUBLISH qos0 sent",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    },
+    {
+      "broker": "aedes",
+      "broker_version": "0.51.3",
+      "broker_conf_sha256": "819b586d1f34113f30a9a49f700a475e8e0ab4dfd62b9e2bacadf5b9f50a6f3d",
+      "scenario": "malformed",
+      "client_id": "honk-m3-aedes-malformed",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "MALFORMED sent type=0",
+        "PEER_CLOSE reason=EOF"
+      ],
+      "peer_close": "EOF",
+      "stderr": ""
+    },
+    {
+      "broker": "aedes",
+      "broker_version": "0.51.3",
+      "broker_conf_sha256": "819b586d1f34113f30a9a49f700a475e8e0ab4dfd62b9e2bacadf5b9f50a6f3d",
+      "scenario": "reconnect",
+      "client_id": "honk-m3-aedes-reconnect",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent",
+        "RECONNECTED",
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    }
+  ],
+  "failed": 0
+}
