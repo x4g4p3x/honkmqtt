@@ -207,6 +207,29 @@ fn rx_backpressure_and_compact() {
 
 // TCP bridge must request ≤ free tail: with start>0 and end<len, feed without
 // compact accepts only rx.len-end bytes even if total free is larger.
+// After consuming a full buffer, start==end==len; compact/reset reclaim.
+fn feed_after_empty_window_at_capacity() {
+    var rx: u8[4] = [0; 4];
+    var s = 0;
+    var e = 0;
+    let f0, ns0, ne0, t0 = stream::feed(rx, s, e, [0xc0, 0x00, 0xd0, 0x00], 4);
+    assert(f0 == stream::OK && t0 == 4 && ne0 == 4);
+    s = ns0;
+    e = ne0;
+    let _, s1, e1 = stream::commit_rx(s, e, 2);
+    s = s1;
+    e = e1;
+    let _, s2, e2 = stream::commit_rx(s, e, 2);
+    s = s2;
+    e = e2;
+    assert(s == 4 && e == 4);
+    // Explicit compact/reset of empty window at capacity (TCP session policy).
+    let cs, ns, ne = stream::compact(rx, s, e);
+    assert(cs == stream::OK && ns == 0 && ne == 0);
+    let f3, ns3, ne3, t3 = stream::feed(rx, ns, ne, [0xe0, 0x00], 2);
+    assert(f3 == stream::OK && t3 == 2 && ns3 == 0 && ne3 == 2);
+}
+
 fn feed_free_tail_before_compact() {
     var rx: u8[8] = [0; 8];
     var s = 0;
@@ -328,6 +351,7 @@ fn main() {
     eof_incomplete_vs_complete();
     fatal_framing_stops();
     rx_backpressure_and_compact();
+    feed_after_empty_window_at_capacity();
     feed_free_tail_before_compact();
     short_writes_commit_only();
     enqueue_compact_with_partly_free_tail();

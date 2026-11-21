@@ -139,7 +139,13 @@ fn feed_socket(
     chunk.clear();
     var tail = rx_tail_free(rx.len, rx_e);
     if tail == 0 {
-        if rx_s > 0 && rx_e > rx_s {
+        if rx_s == rx_e {
+            // Empty window parked at end (commit_rx advanced start to len) —
+            // reset so subsequent recv/feed can use the buffer again.
+            rx_s = 0;
+            rx_e = 0;
+            tail = rx.len;
+        } else if rx_s > 0 {
             // Reclaim headroom before the next short read.
             let cs, ns, ne = stream::compact(rx, rx_s, rx_e);
             if cs != stream::OK { fail("compact failed"); }
@@ -413,13 +419,36 @@ fn reason_is_eof_or_reset(reason: const u8[:]) -> bool {
     return false;
 }
 
+// Discard every complete buffered frame; fail on PINGRESP. Returns true if the
+// window still holds an incomplete prefix (or INVALID retained).
+fn drain_complete_frames(rx: u8[:], rx_s: i64&, rx_e: i64&) -> bool {
+    loop {
+        let fs, used = honkmqtt::frame(rx[rx_s..rx_e], MAX_BODY);
+        if fs == honkmqtt::INCOMPLETE { return stream::pending(rx_s, rx_e) > 0; }
+        if fs == honkmqtt::INVALID {
+            emit_event("RX_INVALID retained");
+            return true;
+        }
+        if fs != honkmqtt::OK { fail("frame status awaiting close"); }
+        let view = rx[rx_s..rx_s + used];
+        let pr, _ = honkmqtt::pingresp(view);
+        if pr == honkmqtt::OK { fail("unexpected PINGRESP after malformed"); }
+        let _, ns, ne = stream::commit_rx(rx_s, rx_e, used);
+        rx_s = ns;
+        rx_e = ne;
+        emit_event("RX frame discarded awaiting close");
+    }
+}
+
 // Wait until peer closes. Accept only bridge-observed EOF/RESET (after RECV).
-// BACKPRESSURE is not EOF — free the window first. Reject TIMEOUT and PINGRESP.
+// Drain all complete buffered frames before each read and before finalizing.
 fn wait_peer_close(rx: u8[:], rx_s: i64&, rx_e: i64&, chunk: u8[>..]&) {
     loop {
+        let held = drain_complete_frames(rx, rx_s, rx_e);
         let fr = feed_socket(rx, rx_s, rx_e, chunk);
         if fr == 1 {
             if !reason_is_eof_or_reset(chunk) { fail(chunk); }
+            let _ = drain_complete_frames(rx, rx_s, rx_e);
             var line: u8[>..] = [];
             for c in "PEER_CLOSE reason=" { line.push(c); }
             for i in chunk.len { line.push(chunk[i]); }
@@ -427,27 +456,16 @@ fn wait_peer_close(rx: u8[:], rx_s: i64&, rx_e: i64&, chunk: u8[>..]&) {
             return;
         }
         if fr == 0 && chunk.len == 0 {
-            // Empty DATA after a real RECV — socket EOF confirmed by bridge.
+            let _ = drain_complete_frames(rx, rx_s, rx_e);
             emit_event("PEER_CLOSE reason=EOF");
             return;
         }
-        // fr==2 (backpressure) or fr==0 with bytes: try to free/parse RX.
-        let fs, used = honkmqtt::frame(rx[rx_s..rx_e], MAX_BODY);
-        if fs == honkmqtt::OK {
-            let view = rx[rx_s..rx_s + used];
-            let pr, _ = honkmqtt::pingresp(view);
-            if pr == honkmqtt::OK { fail("unexpected PINGRESP after malformed"); }
-            let _, ns, ne = stream::commit_rx(rx_s, rx_e, used);
-            rx_s = ns;
-            rx_e = ne;
-            emit_event("RX frame discarded awaiting close");
-        } else if fs == honkmqtt::INVALID {
-            emit_event("RX_INVALID retained");
-            if fr == 2 { fail("RX full with INVALID while awaiting close"); }
-        } else if fr == 2 {
-            // Incomplete frame filling the window — cannot make progress.
-            fail("RX backpressure with incomplete frame awaiting close");
+        if fr == 2 {
+            if held { fail("RX backpressure with incomplete/INVALID awaiting close"); }
+            // Empty window should have been reset inside feed_socket; retry.
+            continue;
         }
+        // Bytes fed — loop to drain any newly completed frames first.
     }
 }
 
