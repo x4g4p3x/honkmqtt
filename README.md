@@ -36,6 +36,13 @@ This is an early foundation, **not a complete MQTT client or a complete MQTT 3.1
   header (`C0 00`, `D0 00`, `E0 00`).
 - UTF-8 and topic name/filter checks, including wildcard matching and the `$` topic rule.
 
+An optional companion package `stream/` provides a bounded byte-stream adapter
+(`feed` / `shift_rx` / `enqueue` / `drain` / `shift_tx` / `on_eof`) over
+caller-owned RX/TX buffers. It does **not** live in the HonkMQTT core and does
+not perform network I/O; callers apply `honkmqtt::frame` (or typed parsers) to
+`rx[0..rx_len]` with their own `max_body`. See `examples/transport.goose` and
+`tests/transport.goose`.
+
 It does **not** validate application payloads, implement QoS/session state,
 perform network I/O, support MQTT 5 properties, or claim protocol conformance.
 It rejects non-minimal remaining-length encodings. Applications must validate
@@ -196,6 +203,29 @@ write those two bytes (`NO_SPACE` if `out` is shorter than 2) and leave `out`
 unchanged on failure. Opaque `encode`/`frame` still accept the same wire forms
 structurally; these helpers are the typed packet APIs.
 
+### Bounded transport adapter (`stream`)
+
+`stream` is a reusable feed/drain helper for fixed-capacity RX/TX buffers
+(M3 evidence; not a socket stack):
+
+- **Bounds:** choose `max_body`, set RX capacity ≥ `max_body + stream::HEADER_MAX`
+  (5). TX capacity bounds queued outbound bytes before `enqueue` returns
+  `NO_SPACE` (backpressure).
+- **Feed:** `feed(rx, rx_len, src, max_n)` appends at most `max_n` bytes
+  (deterministic short reads). `max_n == 0` or empty `src` → `WAIT` with buffers
+  unchanged (zero progress; do not busy-spin). Full RX with more source →
+  `NO_SPACE`.
+- **Frame:** call `honkmqtt::frame(rx[0..rx_len], max_body)`; on `OK`, handle
+  `rx[0..used]` then `shift_rx`. Incomplete frames stay buffered; malformed
+  frames leave RX unconsumed (`consumed == 0` from the codec).
+- **Enqueue / drain:** `enqueue` is atomic (whole packet or `NO_SPACE`).
+  `drain(tx_len, max_n)` reports a short-write size without mutating TX; after a
+  real write, `shift_tx`. Empty TX or `max_n == 0` → `WAIT`.
+- **EOF:** `on_eof(rx_len)` → `CLOSED` if empty, else `TRUNCATED`.
+
+Root programs that use both packages must declare both imports (Goose declares
+packages from the root file only).
+
 ## Use
 
 Install [Goose](https://github.com/aardappel/goose) v2026.4 or newer. Pin a commit or release tag when consuming this pre-release library. For local development:
@@ -222,7 +252,7 @@ python scripts/test.py --native --require-native
 `tests/test.goose`, `tests/publish.goose`, `tests/publish_encode.goose`,
 `tests/pubresp.goose`, `tests/connack.goose`, `tests/connect.goose`,
 `tests/subscribe.goose`, `tests/unsubscribe.goose`, `tests/empty_control.goose`,
-`tests/coverage.goose`, `tests/api.goose`, and
+`tests/transport.goose`, `tests/coverage.goose`, `tests/api.goose`, and
 `tests/fuzz.goose` in the Goose in-process runner, both normally and with
 `--debug`. With `--native` it also `goose build`s and executes those programs
 when `goose toolchain` reports a C compiler; `--require-native` fails if that
@@ -257,8 +287,12 @@ truncations, malformed flags/IDs/filters, 65535-byte filter boundary, and
 sentinels. `tests/empty_control.goose` holds independent PINGREQ/PINGRESP/
 DISCONNECT vectors for the exact `C0 00`/`D0 00`/`E0 00` forms, truncations,
 wrong type/flags, nonzero and non-minimal Remaining Length, adjacency, exact
-capacity, and encode sentinels. `tests/coverage.goose` remains a combinatorial
-flags/length exercise;
+capacity, and encode sentinels. `tests/transport.goose` holds independent
+bounded transport-adapter vectors for short reads/writes, fragmented multibyte
+Remaining Length headers, adjacent frames, clean vs truncated EOF, RX/TX
+backpressure, zero-progress `WAIT`, and exact echoed wire ordering.
+`examples/transport.goose` is the runnable demo. `tests/coverage.goose` remains
+a combinatorial flags/length exercise;
 it is **not** measured line coverage. Goose v2026.4 exposes no source-mapped
 coverage or instrumentation command in `goose help` / `goose help --man`, so
 this repository does not report a coverage percentage.
