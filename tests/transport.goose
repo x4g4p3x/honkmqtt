@@ -237,42 +237,43 @@ fn feed_after_empty_window_at_capacity() {
     assert(pr == honkmqtt::OK);
 }
 
-// Fragmented valid PINGREQ near a short free tail: first byte lands in the
-// remaining tail without compact; second byte needs compact then completes.
+// Fragmented valid PINGREQ near a 1-byte free tail: type byte lands without
+// compact; Remaining Length needs compact then completes the frame.
 fn feed_free_tail_before_compact() {
-    var rx: u8[8] = [0; 8];
+    var rx: u8[7] = [0; 7];
     var s = 0;
     var e = 0;
-    // Fill with three complete PINGREQ frames (6 bytes), leave a 2-byte tail.
+    // Three complete PINGREQ frames (6 bytes); free tail = 1.
     let f0, ns0, ne0, t0 = stream::feed(rx, s, e, [0xc0, 0x00, 0xc0, 0x00, 0xc0, 0x00], 6);
     assert(f0 == stream::OK && t0 == 6 && ns0 == 0 && ne0 == 6);
     s = ns0;
     e = ne0;
-    let fs0, used0 = try_frame(rx, s, e);
-    assert(fs0 == honkmqtt::OK && used0 == 2);
-    let _, s1, e1 = stream::commit_rx(s, e, used0);
-    s = s1;
-    e = e1;
-    assert(s == 2 && e == 6);
-    // Free tail = 2, total free = 4. Cap max_n to free tail (TCP policy).
-    let free_tail = rx.len - e;
-    assert(free_tail == 2);
-    // First fragment of a fourth PINGREQ into the short tail only.
-    let f2, ns2, ne2, t2 = stream::feed(rx, s, e, [0xc0, 0x00], free_tail);
-    assert(f2 == stream::OK && t2 == 2 && ns2 == 2 && ne2 == 8);
-    // Compact reclaims headroom; incomplete frame prefix must survive.
-    let cs, ns3, ne3 = stream::compact(rx, ns2, ne2);
-    assert(cs == stream::OK && ns3 == 0 && ne3 == 6);
-    // Remaining two complete frames then the complete fourth PINGREQ.
-    let fs1, used1 = try_frame(rx, ns3, ne3);
-    assert(fs1 == honkmqtt::OK && used1 == 2);
-    let _, s4, e4 = stream::commit_rx(ns3, ne3, used1);
-    let fs2, used2 = try_frame(rx, s4, e4);
-    assert(fs2 == honkmqtt::OK && used2 == 2);
-    let _, s5, e5 = stream::commit_rx(s4, e4, used2);
-    let fs3, used3 = try_frame(rx, s5, e5);
-    assert(fs3 == honkmqtt::OK && used3 == 2 && e5 - s5 == 2);
-    let pr, _ = honkmqtt::pingreq(rx[s5..s5 + used3]);
+    assert(rx.len - e == 1);
+    // First fragment: only the type byte into the short tail.
+    let f1, ns1, ne1, t1 = stream::feed(rx, s, e, [0xc0], 1);
+    assert(f1 == stream::OK && t1 == 1 && ns1 == 0 && ne1 == 7);
+    s = ns1;
+    e = ne1;
+    // Drain the three complete frames; trailing type byte stays INCOMPLETE.
+    for i in 3 {
+        let fs, used = try_frame(rx, s, e);
+        assert(fs == honkmqtt::OK && used == 2);
+        let _, ns, ne = stream::commit_rx(s, e, used);
+        s = ns;
+        e = ne;
+        let _ = i;
+    }
+    let fs_inc, _ = try_frame(rx, s, e);
+    assert(fs_inc == honkmqtt::INCOMPLETE && e - s == 1 && rx[s] == 0xc0);
+    // Tail full with pending prefix — compact then feed Remaining Length.
+    assert(rx.len - e == 0);
+    let cs, ns2, ne2 = stream::compact(rx, s, e);
+    assert(cs == stream::OK && ns2 == 0 && ne2 == 1);
+    let f2, ns3, ne3, t2 = stream::feed(rx, ns2, ne2, [0x00], 1);
+    assert(f2 == stream::OK && t2 == 1 && ns3 == 0 && ne3 == 2);
+    let fs_ok, used = try_frame(rx, ns3, ne3);
+    assert(fs_ok == honkmqtt::OK && used == 2);
+    let pr, _ = honkmqtt::pingreq(rx[ns3..ns3 + used]);
     assert(pr == honkmqtt::OK);
 }
 

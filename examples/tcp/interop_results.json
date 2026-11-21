@@ -33,13 +33,37 @@
     },
     "architecture": "Python TCP bridge moves bounded socket chunks and returns actual send() counts; Goose applies stream::feed/frame/commit_rx and stream::enqueue/drain/commit_tx plus typed codecs. Python does not frame MQTT. Core honkmqtt.goose unchanged.",
     "broker_listeners": "Harness starts only ephemeral 127.0.0.1 Mosquitto/Aedes children in a TemporaryDirectory (cleaned up on exit). It does not stop, disable, or manage any system mosquitto.service unit.",
-    "aedes_install": "npm ci --no-fund --no-audit from brokers/package-lock.json into /tmp/honkmqtt-aedes-npm (or HONKMQTT_AEDES_NPM); readiness via wait_port + child.poll (no stdout banner)"
+    "aedes_install": "npm ci --no-fund --no-audit from brokers/package-lock.json into an owned TemporaryDirectory (optional HONKMQTT_AEDES_NPM parent only); readiness via wait_port + child.poll (no stdout banner)",
+    "mosquitto_provenance": {
+      "method": "apt-get download + dpkg-deb -x (no dpkg -i; system unit untouched)",
+      "requested_pin": "2.0.18-1build3",
+      "note": "downloaded mosquitto=2.0.18-1build3",
+      "deb_file": "mosquitto_2.0.18-1build3_amd64.deb",
+      "deb_sha256": "aa0c041d847a20ba4bc15110e87e6c848a478856d8f6c6bb04610618cfa173ea",
+      "extract_root": "/tmp/honkmqtt-m3-k1t_9wmm/mosquitto_pkg/root",
+      "binary": "/tmp/honkmqtt-m3-k1t_9wmm/mosquitto_pkg/root/usr/sbin/mosquitto",
+      "path_prepend": "/tmp/honkmqtt-m3-k1t_9wmm/mosquitto_pkg/root/usr/sbin",
+      "download_command": "apt-get download mosquitto=2.0.18-1build3",
+      "extract_command": "dpkg-deb -x /tmp/honkmqtt-m3-k1t_9wmm/mosquitto_pkg/deb/mosquitto_2.0.18-1build3_amd64.deb /tmp/honkmqtt-m3-k1t_9wmm/mosquitto_pkg/root"
+    },
+    "aedes_provenance": {
+      "method": "npm ci into owned TemporaryDirectory",
+      "parent": "/tmp/tmp.Mei6kG2YFQ",
+      "install_dir": "/tmp/tmp.Mei6kG2YFQ/honkmqtt-aedes-yflg887v",
+      "package_json": "examples/tcp/brokers/package.json",
+      "package_lock": "examples/tcp/brokers/package-lock.json",
+      "aedes_server": "examples/tcp/brokers/aedes_server.js",
+      "command": "/usr/bin/npm ci --no-fund --no-audit",
+      "aedes_version": "0.51.3",
+      "lock_sha256": "c5a128d79a945a0cfbc3370f9de4353a8c79ce02aab502124e7bbaf5a5a726a1",
+      "server_sha256": "3192fa1103cffdab69d8848d1b04e5edafc0f5b5de80e2f713f914ab5152b688"
+    }
   },
   "results": [
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "b48ad34ecf21e91fbb8eb2cf8b18af28b7b602ecce455904d7e2f68a9bc68e16",
+      "broker_conf_sha256": "b1ac3caa34dc6cf683165d0f59485ffe9fc332b0a814fab74137cccf9a955373",
       "scenario": "positive",
       "client_id": "honk-m3-mosquitto-positive",
       "ok": true,
@@ -61,7 +85,7 @@
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "b48ad34ecf21e91fbb8eb2cf8b18af28b7b602ecce455904d7e2f68a9bc68e16",
+      "broker_conf_sha256": "b1ac3caa34dc6cf683165d0f59485ffe9fc332b0a814fab74137cccf9a955373",
       "scenario": "malformed",
       "client_id": "honk-m3-mosquitto-malformed",
       "ok": true,
@@ -82,7 +106,7 @@
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "b48ad34ecf21e91fbb8eb2cf8b18af28b7b602ecce455904d7e2f68a9bc68e16",
+      "broker_conf_sha256": "b1ac3caa34dc6cf683165d0f59485ffe9fc332b0a814fab74137cccf9a955373",
       "scenario": "reconnect",
       "client_id": "honk-m3-mosquitto-reconnect",
       "ok": true,

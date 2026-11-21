@@ -128,17 +128,30 @@ def start_mosquitto(workdir: Path) -> BrokerProc:
     return BrokerProc("mosquitto", version, port, proc, conf_hash)
 
 
-def aedes_native_install_dir() -> Path:
-    """Pinned Aedes tree via ``npm ci`` on a native Linux path (not /mnt/c)."""
-    # Prefer /tmp so WSL/drvfs cannot truncate package.json during install.
-    base = Path(os.environ.get("HONKMQTT_AEDES_NPM", "/tmp/honkmqtt-aedes-npm"))
-    marker = base / "node_modules" / "aedes" / "package.json"
-    if marker.is_file():
-        try:
-            json.loads(marker.read_text(encoding="utf-8"))
-            return base
-        except (OSError, json.JSONDecodeError):
-            pass
+MOSQUITTO_DEB_PIN = "2.0.18-1build3"
+
+
+def aedes_parent_dir() -> Optional[Path]:
+    """Optional parent for an owned Aedes TemporaryDirectory (native FS)."""
+    raw = os.environ.get("HONKMQTT_AEDES_NPM", "").strip()
+    if not raw:
+        return None
+    parent = Path(raw)
+    parent.mkdir(parents=True, exist_ok=True)
+    return parent
+
+
+def prepare_aedes_install(
+    parent: Optional[Path] = None,
+) -> Tuple[tempfile.TemporaryDirectory, Path, Dict]:
+    """Always ``npm ci`` into a fresh owned TemporaryDirectory.
+
+    ``parent`` (or ``HONKMQTT_AEDES_NPM``) is only a native-FS parent for the
+    temp dir — never deleted, never reused as a stale install root. Caller must
+    keep the TemporaryDirectory alive for the matrix, then clean it up.
+    """
+    if parent is None:
+        parent = aedes_parent_dir()
     lock = BROKERS / "package-lock.json"
     if not lock.is_file():
         raise RuntimeError(
@@ -147,27 +160,101 @@ def aedes_native_install_dir() -> Path:
     npm = which("npm") or which("npm.cmd")
     if not npm:
         raise RuntimeError("npm not found; cannot install pinned aedes (npm ci)")
-    if base.exists():
-        shutil.rmtree(base)
-    base.mkdir(parents=True, exist_ok=True)
-    for name in ("package.json", "package-lock.json", "aedes_server.js"):
-        (base / name).write_bytes((BROKERS / name).read_bytes())
-    subprocess.check_call(
-        [npm, "ci", "--no-fund", "--no-audit"],
-        cwd=str(base),
+    td = tempfile.TemporaryDirectory(
+        prefix="honkmqtt-aedes-",
+        dir=str(parent) if parent is not None else None,
     )
+    dest = Path(td.name)
+    for name in ("package.json", "package-lock.json", "aedes_server.js"):
+        (dest / name).write_bytes((BROKERS / name).read_bytes())
+    cmd = [npm, "ci", "--no-fund", "--no-audit"]
+    subprocess.check_call(cmd, cwd=str(dest))
+    marker = dest / "node_modules" / "aedes" / "package.json"
     if not marker.is_file():
+        td.cleanup()
         raise RuntimeError("npm ci did not install aedes")
-    json.loads(marker.read_text(encoding="utf-8"))
-    return base
+    version = json.loads(marker.read_text(encoding="utf-8"))["version"]
+    provenance = {
+        "method": "npm ci into owned TemporaryDirectory",
+        "parent": str(parent) if parent is not None else None,
+        "install_dir": str(dest),
+        "package_json": "examples/tcp/brokers/package.json",
+        "package_lock": "examples/tcp/brokers/package-lock.json",
+        "aedes_server": "examples/tcp/brokers/aedes_server.js",
+        "command": " ".join(cmd),
+        "aedes_version": version,
+        "lock_sha256": sha256_file(lock),
+        "server_sha256": sha256_file(BROKERS / "aedes_server.js"),
+    }
+    return td, dest, provenance
 
 
-def start_aedes(workdir: Path) -> BrokerProc:
+def extract_mosquitto_deb(
+    workdir: Path,
+    pin: str = MOSQUITTO_DEB_PIN,
+) -> Tuple[Path, Dict]:
+    """``apt-get download`` + ``dpkg-deb -x`` into ``workdir``; return binary + provenance.
+
+    Does not install via dpkg/apt, and never touches systemd units.
+    """
+    workdir.mkdir(parents=True, exist_ok=True)
+    dl = workdir / "deb"
+    root = workdir / "root"
+    dl.mkdir(exist_ok=True)
+    root.mkdir(exist_ok=True)
+    pkg = f"mosquitto={pin}"
+    download_cmd = ["apt-get", "download", pkg]
+    try:
+        subprocess.check_call(download_cmd, cwd=str(dl))
+    except (OSError, subprocess.CalledProcessError) as exc:
+        # Fall back to whatever version apt can fetch, recording the failure.
+        fallback = ["apt-get", "download", "mosquitto"]
+        try:
+            subprocess.check_call(fallback, cwd=str(dl))
+            download_cmd = fallback
+            pin_note = f"pin {pin} failed ({exc}); downloaded unpinned mosquitto"
+        except (OSError, subprocess.CalledProcessError) as exc2:
+            raise RuntimeError(
+                f"apt-get download failed for {pkg} and unpinned mosquitto: {exc2}"
+            ) from exc2
+    else:
+        pin_note = f"downloaded {pkg}"
+    debs = sorted(dl.glob("mosquitto_*.deb"))
+    if not debs:
+        raise RuntimeError(f"no mosquitto_*.deb after apt-get download in {dl}")
+    deb = debs[-1]
+    extract_cmd = ["dpkg-deb", "-x", str(deb), str(root)]
+    subprocess.check_call(extract_cmd)
+    candidates = [
+        root / "usr" / "sbin" / "mosquitto",
+        root / "usr" / "bin" / "mosquitto",
+    ]
+    binary = next((c for c in candidates if c.is_file()), None)
+    if binary is None:
+        raise RuntimeError(f"mosquitto binary missing under {root}")
+    # Prepend the directory that actually contains the binary.
+    bin_dir = str(binary.parent)
+    os.environ["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+    provenance = {
+        "method": "apt-get download + dpkg-deb -x (no dpkg -i; system unit untouched)",
+        "requested_pin": pin,
+        "note": pin_note,
+        "deb_file": deb.name,
+        "deb_sha256": sha256_file(deb),
+        "extract_root": str(root),
+        "binary": str(binary),
+        "path_prepend": bin_dir,
+        "download_command": " ".join(download_cmd),
+        "extract_command": " ".join(extract_cmd),
+    }
+    return binary, provenance
+
+
+def start_aedes(workdir: Path, install: Path) -> BrokerProc:
     """Start Aedes; readiness is port listen + live child (no stdout banner)."""
     node = which("node") or which("node.exe")
     if not node:
         raise RuntimeError("node not found on PATH")
-    install = aedes_native_install_dir()
     aedes_pkg = install / "node_modules" / "aedes" / "package.json"
     try:
         version = json.loads(aedes_pkg.read_text(encoding="utf-8"))["version"]
@@ -301,6 +388,14 @@ def main() -> int:
         help="comma list: mosquitto,aedes",
     )
     ap.add_argument("--json-out", type=Path, default=None)
+    ap.add_argument(
+        "--extract-mosquitto",
+        action="store_true",
+        help=(
+            f"apt-get download mosquitto={MOSQUITTO_DEB_PIN} + dpkg-deb -x into "
+            "a fresh work dir; prepend that binary's dir to PATH (no dpkg -i)"
+        ),
+    )
     args = ap.parse_args()
 
     goose = args.goose
@@ -326,7 +421,7 @@ def main() -> int:
             return "unknown"
 
     goose_ver = cmd_version([goose, "version"])
-    meta = {
+    meta: Dict = {
         "repo_paths": {
             "session": "examples/tcp/session.goose",
             "bridge": "examples/tcp/bridge.py",
@@ -373,21 +468,34 @@ def main() -> int:
             "disable, or manage any system mosquitto.service unit."
         ),
         "aedes_install": (
-            "npm ci --no-fund --no-audit from brokers/package-lock.json into "
-            "/tmp/honkmqtt-aedes-npm (or HONKMQTT_AEDES_NPM); readiness via "
-            "wait_port + child.poll (no stdout banner)"
+            "npm ci --no-fund --no-audit from brokers/package-lock.json into an "
+            "owned TemporaryDirectory (optional HONKMQTT_AEDES_NPM parent only); "
+            "readiness via wait_port + child.poll (no stdout banner)"
         ),
     }
 
+    aedes_td: Optional[tempfile.TemporaryDirectory] = None
     with tempfile.TemporaryDirectory(prefix="honkmqtt-m3-") as td:
         work = Path(td)
         brokers: List[BrokerProc] = []
         try:
             if "mosquitto" in wanted:
+                if args.extract_mosquitto:
+                    _, mosq_prov = extract_mosquitto_deb(work / "mosquitto_pkg")
+                    meta["mosquitto_provenance"] = mosq_prov
+                else:
+                    mosq_bin = which("mosquitto")
+                    meta["mosquitto_provenance"] = {
+                        "method": "PATH binary (no --extract-mosquitto)",
+                        "binary": mosq_bin,
+                        "note": "reused host PATH mosquitto; system unit untouched",
+                    }
                 brokers.append(start_mosquitto(work / "mosquitto"))
             if "aedes" in wanted:
+                aedes_td, aedes_install, aedes_prov = prepare_aedes_install()
+                meta["aedes_provenance"] = aedes_prov
                 (work / "aedes").mkdir(exist_ok=True)
-                brokers.append(start_aedes(work / "aedes"))
+                brokers.append(start_aedes(work / "aedes", aedes_install))
 
             for broker in brokers:
                 for scenario in SCENARIOS:
@@ -397,6 +505,8 @@ def main() -> int:
         finally:
             for b in brokers:
                 b.stop()
+            if aedes_td is not None:
+                aedes_td.cleanup()
 
     failed = [r for r in results if not r["ok"]]
     report = {"meta": meta, "results": results, "failed": len(failed)}

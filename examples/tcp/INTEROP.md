@@ -67,24 +67,26 @@ file substitutes `@PORT@`. Aedes entrypoint SHA-256 is recorded per run in
 ## Reproduction
 
 ```bash
-# WSL/Linux: goose, python3, mosquitto, node+npm on PATH
-# Ephemeral ports: no need to stop/disable a system mosquitto service.
-python3 examples/tcp/run_interop.py --goose goose --json-out examples/tcp/interop_results.json
+# WSL Ubuntu-24.04 (default user root):
+export GOOSE=/root/goose-v2026.4/goose-v2026.4-linux-x64/goose
+# Fresh Aedes parent (runner creates an owned child TemporaryDirectory under it):
+export HONKMQTT_AEDES_NPM=$(mktemp -d)
+# Clean Mosquitto: apt-get download + dpkg-deb -x (no dpkg -i; system unit untouched)
+python3 examples/tcp/run_interop.py --goose "$GOOSE" --extract-mosquitto \
+  --json-out examples/tcp/interop_results.json
 ```
 
-The runner installs Aedes with `npm ci --no-fund --no-audit` from
-`brokers/package-lock.json` into `/tmp/honkmqtt-aedes-npm` (override with
-`HONKMQTT_AEDES_NPM`). That native Linux path avoids truncated
-`node_modules` on `/mnt/c`. Readiness is loopback `wait_port` plus
-`child.poll` — no stdout banner read. To pre-warm:
+`--extract-mosquitto` runs `apt-get download mosquitto=2.0.18-1build3` then
+`dpkg-deb -x` into a fresh work directory and prepends that tree's
+`usr/sbin` (or `usr/bin`) to `PATH`. Provenance lands in
+`meta.mosquitto_provenance`. Without the flag, the host `PATH` binary is
+recorded as reused.
 
-```bash
-TMP=/tmp/honkmqtt-aedes-npm && rm -rf "$TMP" && mkdir -p "$TMP" \
-  && cp examples/tcp/brokers/package.json \
-     examples/tcp/brokers/package-lock.json \
-     examples/tcp/brokers/aedes_server.js "$TMP"/ \
-  && (cd "$TMP" && npm ci --no-fund --no-audit)
-```
+Aedes always gets `npm ci --no-fund --no-audit` from the pinned
+`brokers/package-lock.json` into an **owned** `TemporaryDirectory` (optional
+`HONKMQTT_AEDES_NPM` is only the parent). The install lives for the whole
+six-case matrix, then that directory alone is cleaned. Provenance:
+`meta.aedes_provenance`. Readiness is `wait_port` + `child.poll`.
 
 ## Case matrix (recorded after acceptance fixes)
 
