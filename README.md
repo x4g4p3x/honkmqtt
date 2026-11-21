@@ -36,6 +36,13 @@ This is an early foundation, **not a complete MQTT client or a complete MQTT 3.1
   header (`C0 00`, `D0 00`, `E0 00`).
 - UTF-8 and topic name/filter checks, including wildcard matching and the `$` topic rule.
 
+An optional **example-only** helper under `examples/stream/` provides a bounded
+byte-stream adapter (`feed` / `commit_rx` / `enqueue` / `drain` / `commit_tx` /
+`on_eof`) over caller-owned RX/TX buffers with start/end cursors. It is not a
+stable HonkMQTT core API and does not perform network I/O; callers apply
+`honkmqtt::frame` (or typed parsers) to the live RX window with their own
+`max_body`. See `examples/transport.goose` and `tests/transport.goose`.
+
 It does **not** validate application payloads, implement QoS/session state,
 perform network I/O, support MQTT 5 properties, or claim protocol conformance.
 It rejects non-minimal remaining-length encodings. Applications must validate
@@ -196,6 +203,40 @@ write those two bytes (`NO_SPACE` if `out` is shorter than 2) and leave `out`
 unchanged on failure. Opaque `encode`/`frame` still accept the same wire forms
 structurally; these helpers are the typed packet APIs.
 
+### Bounded transport adapter (`examples/stream`)
+
+Example-only feed/drain helper for fixed-capacity RX/TX buffers (M3 evidence;
+not a socket stack or stable core API):
+
+- **Bounds:** choose `max_body` in `0..MAX_BODY-HEADER_MAX`, set RX capacity ≥
+  `rx_capacity_for(max_body)` (rejects out-of-range `max_body`). TX capacity
+  bounds queued outbound bytes before `enqueue` returns `NO_SPACE`.
+- **Cursors:** pending bytes are `buf[start..end)`. `commit_rx` / `commit_tx`
+  advance `start` only (no per-write memmove). `compact` slides pending bytes
+  to index 0 inside `feed` when `end == capacity` but `start > 0`, and inside
+  `enqueue` whenever the packet does not fit in the remaining tail
+  (`packet.len > capacity - end`) even if unused tail bytes remain, provided
+  total free capacity can hold it.
+- **Non-overlap:** `feed` `src` must be disjoint from the entire RX buffer;
+  `enqueue` `packet` must be disjoint from the entire TX buffer. Compaction
+  may overwrite the consumed head (`buf[0..start)`) before reading the source,
+  so a view into that region is unsafe even when it does not overlap the
+  eventual append range.
+- **Frame views:** `rx[start..end)` is valid only until the next
+  `feed`/`commit_rx`/`compact` that changes cursors or moves bytes—finish
+  parsing or copy first.
+- **Feed / frame:** `feed(..., max_n)` models short reads; `WAIT` on zero
+  progress. Call `honkmqtt::frame(rx[start..end], max_body)`; on `OK` handle
+  then `commit_rx`. Stop on fatal `INVALID`. Incomplete frames stay buffered.
+- **Enqueue / drain:** atomic `enqueue`; `drain` reports a short-write length
+  from `tx[start)`; after a real write, `commit_tx`. Empty or `max_n == 0` →
+  `WAIT`.
+- **EOF:** after no complete frame remains, `on_eof(pending)` → `CLOSED` if
+  empty, else `TRUNCATED` (incomplete prefix).
+
+Root programs must declare both `honkmqtt` and `stream` imports (Goose declares
+packages from the root file only).
+
 ## Use
 
 Install [Goose](https://github.com/aardappel/goose) v2026.4 or newer. Pin a commit or release tag when consuming this pre-release library. For local development:
@@ -222,7 +263,7 @@ python scripts/test.py --native --require-native
 `tests/test.goose`, `tests/publish.goose`, `tests/publish_encode.goose`,
 `tests/pubresp.goose`, `tests/connack.goose`, `tests/connect.goose`,
 `tests/subscribe.goose`, `tests/unsubscribe.goose`, `tests/empty_control.goose`,
-`tests/coverage.goose`, `tests/api.goose`, and
+`tests/transport.goose`, `tests/coverage.goose`, `tests/api.goose`, and
 `tests/fuzz.goose` in the Goose in-process runner, both normally and with
 `--debug`. With `--native` it also `goose build`s and executes those programs
 when `goose toolchain` reports a C compiler; `--require-native` fails if that
@@ -257,8 +298,12 @@ truncations, malformed flags/IDs/filters, 65535-byte filter boundary, and
 sentinels. `tests/empty_control.goose` holds independent PINGREQ/PINGRESP/
 DISCONNECT vectors for the exact `C0 00`/`D0 00`/`E0 00` forms, truncations,
 wrong type/flags, nonzero and non-minimal Remaining Length, adjacency, exact
-capacity, and encode sentinels. `tests/coverage.goose` remains a combinatorial
-flags/length exercise;
+capacity, and encode sentinels. `tests/transport.goose` holds independent
+bounded transport-adapter vectors for short reads/writes, fragmented multibyte
+Remaining Length headers, adjacent frames, clean vs truncated EOF, RX/TX
+backpressure, zero-progress `WAIT`, and exact echoed wire ordering.
+`examples/transport.goose` is the runnable demo. `tests/coverage.goose` remains
+a combinatorial flags/length exercise;
 it is **not** measured line coverage. Goose v2026.4 exposes no source-mapped
 coverage or instrumentation command in `goose help` / `goose help --man`, so
 this repository does not report a coverage percentage.

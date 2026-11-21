@@ -14,12 +14,13 @@ MQTT 5 are not part of the initial codec scope. Whether to build a client or
 MQTT 5 support is a later product decision, not an implicit commitment.
 
 As of M0 Exit on `cf8dbed`, M1 Exit on `fc12ece` (`encode_publish` baselines),
-and the M2 control-packet codec (all 14 MQTT 3.1.1 types with typed
-parse/encode), the library has fixed-header parsing, bounded frame detection,
-opaque-body encoding, PUBLISH parse/encode with limit vectors, PUBACK/PUBREC/
-PUBREL/PUBCOMP, CONNACK, CONNECT, SUBSCRIBE/SUBACK, UNSUBSCRIBE/UNSUBACK,
-PINGREQ/PINGRESP/DISCONNECT parse/encode, UTF-8/topic validation, and
-topic-filter matching.
+M2 Exit on `bb5e5d3` (all 14 MQTT 3.1.1 types with typed parse/encode), and the
+M3 bounded transport-adapter slice (in progress), the library has fixed-header
+parsing, bounded frame detection, opaque-body encoding, PUBLISH parse/encode
+with limit vectors, PUBACK/PUBREC/PUBREL/PUBCOMP, CONNACK, CONNECT,
+SUBSCRIBE/SUBACK, UNSUBSCRIBE/UNSUBACK, PINGREQ/PINGRESP/DISCONNECT
+parse/encode, UTF-8/topic validation, topic-filter matching, and a companion
+`stream` byte-stream adapter example with independent short-I/O vectors.
 `scripts/test.py` is the repeatable local test entry point;
 `.github/workflows/ci.yml` pins Goose v2026.4 and runs lint plus interpreter
 and native tests on `ubuntu-24.04` and `windows-2022` (x64).
@@ -180,25 +181,35 @@ security claim; main tip updates when this slice merges).
 **Exit:** every MQTT 3.1.1 control-packet type has documented parse and encode
 support, independent valid/invalid vectors and boundary tests. Track any
 intentional protocol deviations, including non-minimal remaining lengths.
-**M2 Exit criteria satisfied locally** by that evidence on this branch (still
-not a conformance, security, or interoperability claim; main tip updates when
-this slice merges). M3 peer/broker integration remains separate.
+**M2 Exit criteria satisfied** on main at `bb5e5d3` (still not a conformance,
+security, or interoperability claim).
 
-### M3 — Integration and interoperability evidence
+### M3 — Integration and interoperability evidence (in progress)
 
-- Build a bounded transport adapter example that handles partial reads and
-  writes without making the core own I/O; explicitly bound buffering.
-- Test packet exchange with at least two independently implemented MQTT 3.1.1
-  peers/brokers, including malformed input and reconnect scenarios where
+- [x] Bounded transport adapter example that handles partial reads and writes
+  without making the core own I/O; explicitly bound buffering. Evidence:
+  example-only `examples/stream/stream.goose` (start/end cursors,
+  `feed`/`commit_rx`/`enqueue`/`drain`/`commit_tx`/`on_eof`, compact only when
+  needed, bounded `rx_capacity_for`); runnable `examples/transport.goose`;
+  independent short-I/O / multibyte-header / adjacency / EOF-incomplete-vs-
+  complete / fatal-framing / backpressure / commit-only TX vectors in
+  `tests/transport.goose`; README contract (non-overlap, view lifetimes).
+  Core `honkmqtt.goose` unchanged. Deterministic simulation only—not real
+  sockets.
+- [ ] Test packet exchange with at least two independently implemented MQTT
+  3.1.1 peers/brokers, including malformed input and reconnect scenarios where
   applicable. Record exact versions, setups, cases, and results.
-- Run a repeatable fuzz/randomized campaign and assess failures, memory limits,
-  denial-of-service behavior, and independent protocol vectors. Add regressions.
-- Test end-to-end representative workloads; record throughput, latency,
+- [ ] Run a repeatable fuzz/randomized campaign and assess failures, memory
+  limits, denial-of-service behavior, and independent protocol vectors. Add
+  regressions. (Existing `tests/fuzz.goose` remains a codec smoke campaign, not
+  this M3 transport/resource assessment.)
+- [ ] Test end-to-end representative workloads; record throughput, latency,
   memory, runtime configuration and variability without universal speed claims.
 
 **Exit:** reproducible interoperability and safety evidence covers the declared
 codec behavior, with outstanding failures and untested requirements documented.
 Passing selected tests is not certification or proof of complete safety.
+M3 remains **in progress** until the unchecked items above are evidenced.
 
 ### M4 — Stable codec release decision
 
