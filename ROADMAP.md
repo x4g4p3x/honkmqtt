@@ -14,10 +14,11 @@ MQTT 5 are not part of the initial codec scope. Whether to build a client or
 MQTT 5 support is a later product decision, not an implicit commitment.
 
 As of M0 Exit on `cf8dbed`, M1 Exit on `fc12ece` (`encode_publish` baselines),
-and M2 slices for the PUBACK family, CONNACK, and CONNECT, the library has
-fixed-header parsing, bounded frame detection, opaque-body encoding, PUBLISH
-parse/encode with limit vectors, PUBACK/PUBREC/PUBREL/PUBCOMP, CONNACK, and
-CONNECT parse/encode, UTF-8/topic validation, and topic-filter matching.
+and M2 slices for the PUBACK family, CONNACK, CONNECT, and SUBSCRIBE/SUBACK,
+the library has fixed-header parsing, bounded frame detection, opaque-body
+encoding, PUBLISH parse/encode with limit vectors, PUBACK/PUBREC/PUBREL/PUBCOMP,
+CONNACK, CONNECT, and SUBSCRIBE/SUBACK parse/encode, UTF-8/topic validation,
+and topic-filter matching.
 `scripts/test.py` is the repeatable local test entry point;
 `.github/workflows/ci.yml` pins Goose v2026.4 and runs lint plus interpreter
 and native tests on `ubuntu-24.04` and `windows-2022` (x64).
@@ -151,7 +152,12 @@ security claim; main tip updates when this slice merges).
   `CONNECT_PROTOCOL_LEVEL` in `honkmqtt.goose`; independent vectors in
   `tests/connect.goose`; API matrix; README. Structural only—no session, auth,
   Will publication, or broker ClientId policy beyond empty-ID/Clean Session.
-- [ ] SUBSCRIBE/SUBACK
+- [x] SUBSCRIBE/SUBACK parse and encode (Packet Identifier + ordered Topic
+  Filter/QoS list or return codes; OASIS MQTT 3.1.1 §§2.2–2.3.1, 3.8–3.9, 4.7).
+  Evidence: `subscribe` / `encode_subscribe` / `subscribe_next` and `suback` /
+  `encode_suback` with `SUBACK_*` constants in `honkmqtt.goose`; independent
+  vectors in `tests/subscribe.goose`; API matrix; README. Structural only—no
+  SUBSCRIBE↔SUBACK pairing, granted-vs-requested policy, or session state.
 - [ ] UNSUBSCRIBE/UNSUBACK
 - [ ] PINGREQ/PINGRESP (typed helpers; opaque `encode`/`frame` already cover
   the 2-byte empty forms structurally)
