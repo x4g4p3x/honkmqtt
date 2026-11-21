@@ -171,6 +171,38 @@ fn connack_statuses() {
     assert(nos == honkmqtt::NO_SPACE && nn == 0 && tiny[0] == 0xcc && tiny[1] == 0xcc);
 }
 
+fn connect_statuses() {
+    let pkt: u8[15] = [
+        0x10, 0x0d,
+        0x00, 0x04, 0x4d, 0x51, 0x54, 0x54,
+        0x04, 0x02, 0x00, 0x00,
+        0x00, 0x01, 0x61,
+    ];
+    let ok, used, flags, ka, co, cl, _, _, _, _, _, _, _, _ =
+        honkmqtt::connect(pkt, 64);
+    assert(ok == honkmqtt::OK && used == 15 && flags == 2 && ka == 0 && cl == 1);
+    assert(pkt[co] == 0x61);
+    let inc, iu, _, _, _, _, _, _, _, _, _, _, _, _ = honkmqtt::connect(pkt[0..8], 64);
+    assert(inc == honkmqtt::INCOMPLETE && iu == 0);
+    let bad, bu, _, _, _, _, _, _, _, _, _, _, _, _ =
+        honkmqtt::connect([0x10, 0x0c, 0x00, 0x04, 0x4d, 0x51, 0x54, 0x54, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00], 64);
+    assert(bad == honkmqtt::INVALID && bu == 0);
+    var out: u8[32] = [0xaa; 32];
+    let es, en = honkmqtt::encode_connect(
+        true, 0, "a", false, 0, false, "", "", false, "", false, "", out);
+    assert(es == honkmqtt::OK && en == 15);
+    for i in out.len { out[i] = 0xbb; }
+    let inv, iw = honkmqtt::encode_connect(
+        false, 0, "", false, 0, false, "", "", false, "", false, "", out);
+    assert(inv == honkmqtt::INVALID && iw == 0);
+    for i in out.len { assert(out[i] == 0xbb); }
+    var tiny: u8[4] = [0xcc; 4];
+    let nos, nn = honkmqtt::encode_connect(
+        true, 0, "a", false, 0, false, "", "", false, "", false, "", tiny);
+    assert(nos == honkmqtt::NO_SPACE && nn == 0);
+    for i in tiny.len { assert(tiny[i] == 0xcc); }
+}
+
 fn main() {
     header_statuses();
     frame_statuses();
@@ -180,6 +212,7 @@ fn main() {
     encode_publish_statuses();
     pubresp_statuses();
     connack_statuses();
+    connect_statuses();
     matches_statuses();
     print("API behavioral matrix passed");
 }
