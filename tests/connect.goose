@@ -172,6 +172,12 @@ fn literal_vectors() {
         0x00, 0x00,
     ];
     vector_ok(true, 0, "", false, 0, false, "", "", false, "", false, "", v2);
+    // Present-empty Client ID: data offset is immediately after the length prefix.
+    let _, _, _, _, v2_co, v2_cl, v2_wto, v2_wtl, v2_wmo, v2_wml, v2_uo, v2_ul, v2_po, v2_pl =
+        honkmqtt::connect(v2, 65535);
+    assert(v2_co == 14 && v2_cl == 0);
+    assert(v2_wto == 0 && v2_wtl == 0 && v2_wmo == 0 && v2_wml == 0);
+    assert(v2_uo == 0 && v2_ul == 0 && v2_po == 0 && v2_pl == 0);
 
     // Clean Session clear, Client ID "ab", Keep Alive 10.
     let v3: u8[16] = [
@@ -211,6 +217,12 @@ fn literal_vectors() {
         0x00, 0x00,
     ];
     vector_ok(true, 1, "x", true, 0, false, "w", "", true, "", true, "", v5);
+    // Present-empty Will Message / User Name / Password keep distinct data offsets.
+    let _, _, _, _, _, _, _, _, v5_wmo, v5_wml, v5_uo, v5_ul, v5_po, v5_pl =
+        honkmqtt::connect(v5, 65535);
+    assert(v5_wmo == 20 && v5_wml == 0);
+    assert(v5_uo == 22 && v5_ul == 0);
+    assert(v5_po == 24 && v5_pl == 0);
 
     // User Name without Password; Will QoS 2 no retain; binary Will Message.
     // Flags: user|qos2|will = 0b10010100 = 0x94
