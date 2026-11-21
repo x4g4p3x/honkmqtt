@@ -203,6 +203,51 @@ fn connect_statuses() {
     for i in tiny.len { assert(tiny[i] == 0xcc); }
 }
 
+fn subscribe_statuses() {
+    let pkt: u8[8] = [0x82, 0x06, 0x00, 0x01, 0x00, 0x01, 0x61, 0x00];
+    let ok, used, id, lo, ll = honkmqtt::subscribe(pkt, 64);
+    assert(ok == honkmqtt::OK && used == 8 && id == 1 && ll == 4);
+    let ns, next, fo, fl, qos = honkmqtt::subscribe_next(pkt, lo, lo + ll);
+    assert(ns == honkmqtt::OK && fl == 1 && qos == 0 && pkt[fo] == 0x61 && next == lo + ll);
+    let inc, iu, _, _, _ = honkmqtt::subscribe(pkt[0..4], 64);
+    assert(inc == honkmqtt::INCOMPLETE && iu == 0);
+    let bad, bu, _, _, _ = honkmqtt::subscribe([0x82, 0x06, 0x00, 0x00, 0x00, 0x01, 0x61, 0x00], 64);
+    assert(bad == honkmqtt::INVALID && bu == 0);
+    var out: u8[16] = [0xaa; 16];
+    let list: u8[4] = [0x00, 0x01, 0x61, 0x00];
+    let es, en = honkmqtt::encode_subscribe(1, list, out);
+    assert(es == honkmqtt::OK && en == 8);
+    for i in out.len { out[i] = 0xbb; }
+    let inv, iw = honkmqtt::encode_subscribe(0, list, out);
+    assert(inv == honkmqtt::INVALID && iw == 0);
+    for i in out.len { assert(out[i] == 0xbb); }
+    var tiny: u8[4] = [0xcc; 4];
+    let nos, nn = honkmqtt::encode_subscribe(1, list, tiny);
+    assert(nos == honkmqtt::NO_SPACE && nn == 0);
+    for i in tiny.len { assert(tiny[i] == 0xcc); }
+}
+
+fn suback_statuses() {
+    let pkt: u8[5] = [0x90, 0x03, 0x00, 0x01, 0x00];
+    let ok, used, id, co, cl = honkmqtt::suback(pkt, 64);
+    assert(ok == honkmqtt::OK && used == 5 && id == 1 && cl == 1 && pkt[co] == 0);
+    let inc, iu, _, _, _ = honkmqtt::suback(pkt[0..3], 64);
+    assert(inc == honkmqtt::INCOMPLETE && iu == 0);
+    let bad, bu, _, _, _ = honkmqtt::suback([0x90, 0x03, 0x00, 0x01, 0x03], 64);
+    assert(bad == honkmqtt::INVALID && bu == 0);
+    var out: u8[8] = [0xaa; 8];
+    let codes: u8[1] = [0x80];
+    let es, en = honkmqtt::encode_suback(1, codes, out);
+    assert(es == honkmqtt::OK && en == 5 && out[4] == 0x80);
+    for i in out.len { out[i] = 0xbb; }
+    let inv, iw = honkmqtt::encode_suback(1, [0x03], out);
+    assert(inv == honkmqtt::INVALID && iw == 0);
+    for i in out.len { assert(out[i] == 0xbb); }
+    var tiny: u8[2] = [0xcc, 0xcc];
+    let nos, nn = honkmqtt::encode_suback(1, codes, tiny);
+    assert(nos == honkmqtt::NO_SPACE && nn == 0 && tiny[0] == 0xcc && tiny[1] == 0xcc);
+}
+
 fn main() {
     header_statuses();
     frame_statuses();
@@ -213,6 +258,8 @@ fn main() {
     pubresp_statuses();
     connack_statuses();
     connect_statuses();
+    subscribe_statuses();
+    suback_statuses();
     matches_statuses();
     print("API behavioral matrix passed");
 }

@@ -25,5 +25,17 @@ fn main() {
     assert(xs == honkmqtt::OK && xn > 0);
     let ys, yu, yf, _, _, yl, _, _, _, _, _, _, _, _ = honkmqtt::connect(conn[0..xn], 64);
     assert(ys == honkmqtt::OK && yu == xn && (yf & 2) != 0 && yl == 4);
-    print("PINGREQ frame: ", size, " bytes; PUBLISH encoded: ", n, " bytes; PUBACK id=", rid, "; CONNACK rc=", rc, "; CONNECT id_len=", yl);
+    var sub_out: u8[16] = [0; 16];
+    let list: u8[4] = [0x00, 0x01, 0x61, 0x00];
+    let ss, sn = honkmqtt::encode_subscribe(1, list, sub_out);
+    assert(ss == honkmqtt::OK && sn == 8);
+    let ps2, pu, pid, _, _ = honkmqtt::subscribe(sub_out[0..sn], 64);
+    assert(ps2 == honkmqtt::OK && pu == sn && pid == 1);
+    var sa: u8[8] = [0; 8];
+    let codes: u8[1] = [0x00];
+    let as_, an = honkmqtt::encode_suback(1, codes, sa);
+    assert(as_ == honkmqtt::OK && an == 5);
+    let ks2, ku2, kid, _, _ = honkmqtt::suback(sa[0..an], 64);
+    assert(ks2 == honkmqtt::OK && ku2 == an && kid == 1);
+    print("PINGREQ frame: ", size, " bytes; PUBLISH encoded: ", n, " bytes; PUBACK id=", rid, "; CONNACK rc=", rc, "; CONNECT id_len=", yl, "; SUBSCRIBE id=", pid);
 }
