@@ -213,23 +213,38 @@ def run_case(
         elif line.startswith("EXIT "):
             exit_code = int(line[5:])
     ok = proc.returncode == 0 and exit_code == 0
+    if peer_close is None:
+        for e in events:
+            if e.startswith("PEER_CLOSE reason="):
+                peer_close = e.split("=", 1)[1]
+                break
     if scenario == "positive":
         needed = [
             "CONNACK session=0 code=0",
             "SUBACK id=7 code=0",
             "PUBLISH qos0 sent",
+            "PUBLISH verified topic=m3/t payload=hi!",
             "PINGRESP ok",
             "DISCONNECT sent",
         ]
-        ok = ok and all(any(e == n or e.startswith(n) for e in events) for n in needed)
+        ok = ok and all(any(e == n for e in events) for n in needed)
     elif scenario == "malformed":
         ok = ok and any(e.startswith("MALFORMED sent") for e in events)
-        ok = ok and any(e.startswith("PEER_CLOSE reason=") for e in events)
-        # Prefer explicit classification from bridge or goose event.
-        if peer_close is None:
-            for e in events:
-                if e.startswith("PEER_CLOSE reason="):
-                    peer_close = e.split("=", 1)[1]
+        # Confirmed peer closure must be EOF or RESET — never TIMEOUT/other.
+        ok = ok and peer_close in ("EOF", "RESET")
+        close_idxs = [
+            i for i, e in enumerate(events) if e.startswith("PEER_CLOSE reason=")
+        ]
+        ok = ok and len(close_idxs) >= 1
+        if close_idxs:
+            reason = events[close_idxs[0]].split("=", 1)[-1]
+            ok = ok and reason in ("EOF", "RESET")
+            # No PINGRESP before the confirmed close (post-reconnect ping is OK).
+            ok = ok and not any(
+                events[i].startswith("PINGRESP") for i in range(close_idxs[0])
+            )
+        ok = ok and any(e == "RECONNECTED after malformed" for e in events)
+        ok = ok and sum(1 for e in events if e.startswith("CONNACK")) >= 2
     elif scenario == "reconnect":
         ok = ok and any(e == "RECONNECTED" for e in events)
         connacks = [e for e in events if e.startswith("CONNACK")]
@@ -280,15 +295,23 @@ def main() -> int:
             "tx_cap": 256,
             "max_body": 251,
             "recv_max": 64,
+            "recv_cap_rule": "min(64, rx_free)",
             "ipc_max": 512,
             "connect_timeout_s": 2.0,
             "io_timeout_s": 2.0,
             "case_timeout_s": 15.0,
+            "send_ack": "socket.send byte count; Goose commit_tx(exact)",
         },
         "architecture": (
-            "Python TCP bridge owns sockets; Goose session.goose drives "
-            "examples/stream feed/drain and honkmqtt typed codecs over "
-            "length-prefixed stdin/stdout IPC. Core honkmqtt.goose unchanged."
+            "Python TCP bridge moves bounded socket chunks and returns actual "
+            "send() counts; Goose applies stream::feed/frame/commit_rx and "
+            "stream::enqueue/drain/commit_tx plus typed codecs. Python does not "
+            "frame MQTT. Core honkmqtt.goose unchanged."
+        ),
+        "broker_service_note": (
+            "apt mosquitto postinst may enable systemd mosquitto.service; this "
+            "harness stops/disables that unit and uses only ephemeral 127.0.0.1 "
+            "listeners with TemporaryDirectory cleanup."
         ),
     }
 

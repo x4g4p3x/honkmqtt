@@ -1,6 +1,7 @@
 // M3 TCP interop client: drives examples/stream over a length-prefixed pipe
-// protocol. The Python bridge owns real TCP; Goose owns framing/codecs.
-// No print() — stdout is binary IPC only; diagnostics go to stderr.
+// protocol. The Python bridge owns real TCP short I/O + send byte counts;
+// Goose owns feed/frame/commit_rx and enqueue/drain/commit_tx + codecs.
+// No print() — stdout is binary IPC only.
 import os;
 import honkmqtt from "../..";
 import stream from "../stream";
@@ -8,7 +9,7 @@ import stream from "../stream";
 const RX_CAP = 256;
 const TX_CAP = 256;
 const MAX_BODY = RX_CAP - stream::HEADER_MAX; // 251
-const RECV_MAX = 64;   // short-read cap requested from the bridge
+const RECV_MAX = 64;   // short-read soft cap (also limited by free RX window)
 const IPC_MAX = 512;   // hard cap on one IPC payload
 const KEEP_ALIVE = 30;
 const SUB_ID = 7;
@@ -68,13 +69,27 @@ fn recv_msg(payload: u8[>..]&) -> i64 {
     return kind;
 }
 
-fn socket_send(bytes: const u8[:]) {
+// SEND → wait for DATA u16be sent count (actual socket.send) or ERR.
+fn socket_send(bytes: const u8[:]) -> i64 {
+    if bytes.len == 0 { return 0; }
     emit(MSG_SEND, bytes);
+    var reply: u8[>..] = [];
+    let kind = recv_msg(reply);
+    if kind == MSG_ERR {
+        fail(reply);
+    }
+    if kind != MSG_DATA || reply.len != 2 { fail("bad SEND ack"); }
+    let hi = reply[0] as i64;
+    let lo = reply[1] as i64;
+    let sent = hi * 256 + lo;
+    if sent <= 0 || sent > bytes.len { fail("SEND ack out of range"); }
+    return sent;
 }
 
 fn socket_recv(max_n: i64, dst: u8[>..]&) -> i64 {
     // Returns: 0=DATA (possibly empty EOF), 1=ERR (dst holds reason UTF-8)
     dst.clear();
+    if max_n <= 0 { return 0; }
     var req: u8[2] = [0; 2];
     req[0] = (max_n / 256) as u8;
     req[1] = (max_n % 256) as u8;
@@ -91,8 +106,9 @@ fn flush_tx(tx: u8[:], tx_s: i64&, tx_e: i64&) {
         let ds, n = stream::drain(tx_s, tx_e, RECV_MAX);
         if ds == stream::WAIT { break; }
         if ds != stream::OK { fail("drain failed"); }
-        socket_send(tx[tx_s..tx_s + n]);
-        let cs, ns, ne = stream::commit_tx(tx_s, tx_e, n);
+        // Bridge may short-write; commit only acknowledged bytes.
+        let sent = socket_send(tx[tx_s..tx_s + n]);
+        let cs, ns, ne = stream::commit_tx(tx_s, tx_e, sent);
         if cs != stream::OK { fail("commit_tx failed"); }
         tx_s = ns;
         tx_e = ne;
@@ -107,19 +123,36 @@ fn enqueue_packet(tx: u8[:], tx_s: i64&, tx_e: i64&, packet: const u8[:]) {
     flush_tx(tx, tx_s, tx_e);
 }
 
+fn rx_free(rx_len: i64, rx_s: i64, rx_e: i64) -> i64 {
+    // Bytes that can still be accepted after optional compact (total free).
+    let pending = rx_e - rx_s;
+    if pending < 0 { return 0; }
+    let free = rx_len - pending;
+    if free < 0 { return 0; }
+    return free;
+}
+
 fn feed_socket(
     rx:    u8[:],
     rx_s:  i64&,
     rx_e:  i64&,
     chunk: u8[>..]&,
 ) -> i64 {
-    // 0=ok progress or WAIT-equivalent empty DATA, 1=peer err (chunk=reason)
-    let r = socket_recv(RECV_MAX, chunk);
+    // 0=ok (DATA, maybe empty EOF), 1=peer err (chunk=reason)
+    let free = rx_free(rx.len, rx_s, rx_e);
+    var want = RECV_MAX;
+    if want > free { want = free; }
+    if want <= 0 {
+        // No RX window — caller must commit frames before feeding more.
+        chunk.clear();
+        return 0;
+    }
+    let r = socket_recv(want, chunk);
     if r == 1 { return 1; }
     if chunk.len == 0 { return 0; }
-    // Copy to a fixed staging buffer disjoint from rx (stream contract).
+    if chunk.len > want { fail("bridge exceeded recv cap"); }
+    // Staging disjoint from rx (stream non-overlap contract).
     var staging: u8[RECV_MAX] = [0; RECV_MAX];
-    if chunk.len > RECV_MAX { fail("bridge exceeded RECV_MAX"); }
     for i in chunk.len { staging[i] = chunk[i]; }
     let st, ns, ne, taken = stream::feed(rx, rx_s, rx_e, staging[0..chunk.len], chunk.len);
     if st == stream::WAIT { return 0; }
@@ -156,6 +189,17 @@ fn eq_str(a: const u8[:], b: const u8[:]) -> bool {
     if a.len != b.len { return false; }
     for i in a.len { if a[i] != b[i] { return false; } }
     return true;
+}
+
+fn eq_bytes(a: const u8[:], b: const u8[:]) -> bool {
+    return eq_str(a, b);
+}
+
+fn tcp_reconnect() {
+    emit(MSG_RECONNECT, "");
+    var ack: u8[>..] = [];
+    let kind = recv_msg(ack);
+    if kind != MSG_DATA { fail("reconnect ack expected DATA"); }
 }
 
 fn do_connect(
@@ -197,10 +241,7 @@ fn do_connect(
         if fs == honkmqtt::INVALID { fail("frame invalid during connack"); }
         let fr = feed_socket(rx, rx_s, rx_e, chunk);
         if fr == 1 { fail(chunk); }
-        if chunk.len == 0 {
-            // EOF with incomplete CONNACK
-            fail("EOF before CONNACK");
-        }
+        if chunk.len == 0 { fail("EOF before CONNACK"); }
     }
 }
 
@@ -213,8 +254,7 @@ fn do_subscribe(
     tx_e:  i64&,
     chunk: u8[>..]&,
 ) {
-    // list: topic "m3/t" qos 0 → 00 04 6d 33 2f 74 00
-    let list: u8[7] = [0x00, 0x04, 0x6d, 0x33, 0x2f, 0x74, 0x00];
+    let list: u8[7] = [0x00, 0x04, 0x6d, 0x33, 0x2f, 0x74, 0x00]; // m3/t qos0
     var pkt: u8[TX_CAP] = [0; TX_CAP];
     let es, en = honkmqtt::encode_subscribe(SUB_ID, list, pkt);
     if es != honkmqtt::OK { fail("encode_subscribe"); }
@@ -242,17 +282,65 @@ fn do_subscribe(
     }
 }
 
-// Brokers may deliver a PUBLISH to the same client after SUBSCRIBE+PUBLISH.
-// Skip complete PUBLISH frames (typed parse) until the expected control packet.
-fn skip_inbound_publish(rx: u8[:], rx_s: i64&, rx_e: i64&, used: i64) -> bool {
-    let view = rx[rx_s..rx_s + used];
-    let ps, consumed, _, _, _, _ = honkmqtt::publish(view, MAX_BODY);
-    if ps != honkmqtt::OK || consumed != used { return false; }
-    let _, ns, ne = stream::commit_rx(rx_s, rx_e, used);
-    rx_s = ns;
-    rx_e = ne;
-    emit_event("PUBLISH inbound skipped");
-    return true;
+fn expect_topic_payload(
+    view:    const u8[:],
+    topic_o: i64,
+    topic_n: i64,
+    pay_o:   i64,
+    end:     i64,
+) -> bool {
+    let want_topic: u8[4] = [0x6d, 0x33, 0x2f, 0x74]; // m3/t
+    let want_pay:   u8[3] = [0x68, 0x69, 0x21];       // hi!
+    if topic_n != want_topic.len { return false; }
+    if !eq_bytes(view[topic_o..topic_o + topic_n], want_topic) { return false; }
+    let pay_n = end - pay_o;
+    if pay_n != want_pay.len { return false; }
+    return eq_bytes(view[pay_o..pay_o + pay_n], want_pay);
+}
+
+// Publish QoS0 then verify typed inbound PUBLISH (same-client delivery).
+fn do_publish_exchange(
+    rx:    u8[:],
+    rx_s:  i64&,
+    rx_e:  i64&,
+    tx:    u8[:],
+    tx_s:  i64&,
+    tx_e:  i64&,
+    chunk: u8[>..]&,
+) {
+    var pkt: u8[TX_CAP] = [0; TX_CAP];
+    let topic:   u8[4] = [0x6d, 0x33, 0x2f, 0x74];
+    let payload: u8[3] = [0x68, 0x69, 0x21];
+    let es, en = honkmqtt::encode_publish(false, 0, false, topic, 0, payload, pkt);
+    if es != honkmqtt::OK { fail("encode_publish"); }
+    enqueue_packet(tx, tx_s, tx_e, pkt[0..en]);
+    emit_event("PUBLISH qos0 sent");
+
+    loop {
+        let fs, used = honkmqtt::frame(rx[rx_s..rx_e], MAX_BODY);
+        if fs == honkmqtt::OK {
+            let view = rx[rx_s..rx_s + used];
+            let ps, consumed, to, tn, po, _ = honkmqtt::publish(view, MAX_BODY);
+            if ps == honkmqtt::OK && consumed == used {
+                if expect_topic_payload(view, to, tn, po, consumed) {
+                    let _, ns, ne = stream::commit_rx(rx_s, rx_e, used);
+                    rx_s = ns;
+                    rx_e = ne;
+                    emit_event("PUBLISH verified topic=m3/t payload=hi!");
+                    return;
+                }
+                fail("PUBLISH topic/payload mismatch");
+            }
+            // Unexpected control while waiting for echo — reject PINGRESP etc.
+            let pr, _ = honkmqtt::pingresp(view);
+            if pr == honkmqtt::OK { fail("unexpected PINGRESP during publish wait"); }
+            fail("unexpected frame during publish wait");
+        }
+        if fs == honkmqtt::INVALID { fail("frame invalid during publish wait"); }
+        let fr = feed_socket(rx, rx_s, rx_e, chunk);
+        if fr == 1 { fail(chunk); }
+        if chunk.len == 0 { fail("EOF before PUBLISH echo"); }
+    }
 }
 
 fn do_ping(
@@ -272,7 +360,8 @@ fn do_ping(
     loop {
         let fs, used = honkmqtt::frame(rx[rx_s..rx_e], MAX_BODY);
         if fs == honkmqtt::OK {
-            let ps, consumed = honkmqtt::pingresp(rx[rx_s..rx_s + used]);
+            let view = rx[rx_s..rx_s + used];
+            let ps, consumed = honkmqtt::pingresp(view);
             if ps == honkmqtt::OK && consumed == used {
                 let _, ns, ne = stream::commit_rx(rx_s, rx_e, used);
                 rx_s = ns;
@@ -280,7 +369,17 @@ fn do_ping(
                 emit_event("PINGRESP ok");
                 return;
             }
-            if skip_inbound_publish(rx, rx_s, rx_e, used) { continue; }
+            // Late PUBLISH after ping — accept only if verified, then keep waiting.
+            let pub_st, pub_used, to, tn, po, _ = honkmqtt::publish(view, MAX_BODY);
+            if pub_st == honkmqtt::OK && pub_used == used {
+                if expect_topic_payload(view, to, tn, po, pub_used) {
+                    let _, ns, ne = stream::commit_rx(rx_s, rx_e, used);
+                    rx_s = ns;
+                    rx_e = ne;
+                    emit_event("PUBLISH verified topic=m3/t payload=hi!");
+                    continue;
+                }
+            }
             fail("pingresp parse");
         }
         if fs == honkmqtt::INVALID { fail("frame invalid during pingresp"); }
@@ -288,16 +387,6 @@ fn do_ping(
         if fr == 1 { fail(chunk); }
         if chunk.len == 0 { fail("EOF before PINGRESP"); }
     }
-}
-
-fn do_publish_qos0(tx: u8[:], tx_s: i64&, tx_e: i64&) {
-    var pkt: u8[TX_CAP] = [0; TX_CAP];
-    let topic:   u8[4] = [0x6d, 0x33, 0x2f, 0x74]; // m3/t
-    let payload: u8[3] = [0x68, 0x69, 0x21]; // hi!
-    let es, en = honkmqtt::encode_publish(false, 0, false, topic, 0, payload, pkt);
-    if es != honkmqtt::OK { fail("encode_publish"); }
-    enqueue_packet(tx, tx_s, tx_e, pkt[0..en]);
-    emit_event("PUBLISH qos0 sent");
 }
 
 fn do_disconnect(tx: u8[:], tx_s: i64&, tx_e: i64&) {
@@ -308,11 +397,18 @@ fn do_disconnect(tx: u8[:], tx_s: i64&, tx_e: i64&) {
     emit_event("DISCONNECT sent");
 }
 
+fn reason_is_eof_or_reset(reason: const u8[:]) -> bool {
+    if eq_str(reason, "EOF") { return true; }
+    if eq_str(reason, "RESET") { return true; }
+    return false;
+}
+
+// Wait until peer closes. Accept only EOF/RESET. Reject TIMEOUT and PINGRESP.
 fn wait_peer_close(rx: u8[:], rx_s: i64&, rx_e: i64&, chunk: u8[>..]&) {
     loop {
         let fr = feed_socket(rx, rx_s, rx_e, chunk);
         if fr == 1 {
-            // ERR reason already in chunk
+            if !reason_is_eof_or_reset(chunk) { fail(chunk); }
             var line: u8[>..] = [];
             for c in "PEER_CLOSE reason=" { line.push(c); }
             for i in chunk.len { line.push(chunk[i]); }
@@ -323,17 +419,27 @@ fn wait_peer_close(rx: u8[:], rx_s: i64&, rx_e: i64&, chunk: u8[>..]&) {
             emit_event("PEER_CLOSE reason=EOF");
             return;
         }
-        // Peer sent more bytes after malformed; keep reading until close.
         let fs, used = honkmqtt::frame(rx[rx_s..rx_e], MAX_BODY);
         if fs == honkmqtt::OK {
+            let view = rx[rx_s..rx_s + used];
+            let pr, _ = honkmqtt::pingresp(view);
+            if pr == honkmqtt::OK { fail("unexpected PINGRESP after malformed"); }
+            // Discard other complete frames without treating as success path.
             let _, ns, ne = stream::commit_rx(rx_s, rx_e, used);
             rx_s = ns;
             rx_e = ne;
+            emit_event("RX frame discarded awaiting close");
         } else if fs == honkmqtt::INVALID {
             emit_event("RX_INVALID retained");
-            // Do not commit; still wait for peer close.
         }
     }
+}
+
+fn reset_cursors(rx_s: i64&, rx_e: i64&, tx_s: i64&, tx_e: i64&) {
+    rx_s = 0;
+    rx_e = 0;
+    tx_s = 0;
+    tx_e = 0;
 }
 
 fn run_positive(client_id: const u8[:]) {
@@ -346,9 +452,10 @@ fn run_positive(client_id: const u8[:]) {
     var chunk: u8[>..] = [];
 
     emit_event("BOUNDS rx=256 tx=256 max_body=251 recv_max=64 ipc_max=512");
+    emit_event("BRIDGE_MODEL send_ack=socket.send_count recv_cap=min(64,rx_free)");
     do_connect(rx, rx_s, rx_e, tx, tx_s, tx_e, client_id, chunk);
     do_subscribe(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk);
-    do_publish_qos0(tx, tx_s, tx_e);
+    do_publish_exchange(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk);
     do_ping(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk);
     do_disconnect(tx, tx_s, tx_e);
     emit(MSG_DONE, [0]);
@@ -364,11 +471,19 @@ fn run_malformed(client_id: const u8[:]) {
     var chunk: u8[>..] = [];
 
     do_connect(rx, rx_s, rx_e, tx, tx_s, tx_e, client_id, chunk);
-    // Reserved MQTT packet type 0 / illegal fixed header — brokers should close.
+    // Reserved type 0 — enqueue so SEND uses stream drain + send-ack commit.
     let bad: u8[2] = [0x00, 0x00];
-    socket_send(bad);
+    enqueue_packet(tx, tx_s, tx_e, bad);
     emit_event("MALFORMED sent type=0");
     wait_peer_close(rx, rx_s, rx_e, chunk);
+
+    // Same client id reconnect after confirmed closure.
+    tcp_reconnect();
+    reset_cursors(rx_s, rx_e, tx_s, tx_e);
+    emit_event("RECONNECTED after malformed");
+    do_connect(rx, rx_s, rx_e, tx, tx_s, tx_e, client_id, chunk);
+    do_ping(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk);
+    do_disconnect(tx, tx_s, tx_e);
     emit(MSG_DONE, [0]);
 }
 
@@ -385,14 +500,8 @@ fn run_reconnect(client_id: const u8[:]) {
     do_ping(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk);
     do_disconnect(tx, tx_s, tx_e);
 
-    // Fresh TCP + same client id.
-    emit(MSG_RECONNECT, "");
-    let kind = recv_msg(chunk);
-    if kind != MSG_DATA { fail("reconnect ack expected DATA"); }
-    rx_s = 0;
-    rx_e = 0;
-    tx_s = 0;
-    tx_e = 0;
+    tcp_reconnect();
+    reset_cursors(rx_s, rx_e, tx_s, tx_e);
     emit_event("RECONNECTED");
     do_connect(rx, rx_s, rx_e, tx, tx_s, tx_e, client_id, chunk);
     do_ping(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk);

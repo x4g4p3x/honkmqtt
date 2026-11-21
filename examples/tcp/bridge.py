@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Bounded TCP socket bridge for examples/tcp/session.goose.
 
-Goose owns stream adapter + MQTT codecs over a length-prefixed pipe protocol.
-This process owns the TCP socket (connect, short reads/writes, timeouts) and
-classifies peer closure as EOF, RESET, or TIMEOUT separately.
+Architecture (honest adapter evidence):
+  - This process owns TCP: connect, short recv/send, timeouts, EOF/RESET/TIMEOUT.
+  - Goose owns examples/stream feed/frame/commit_rx and enqueue/drain/commit_tx
+    plus honkmqtt codecs. Python never frames MQTT and never acks unsent bytes.
+
+SEND replies with the actual ``socket.send`` byte count (one call). Goose must
+wait and ``commit_tx`` exactly that count. RECV returns at most the requested
+cap (Goose should request ≤ free RX window).
 """
 
 from __future__ import annotations
@@ -11,15 +16,15 @@ from __future__ import annotations
 import argparse
 import errno
 import os
+import select
 import socket
-import struct
 import subprocess
 import sys
+import threading
 import time
 from typing import List, Optional, Tuple
 
 IPC_MAX = 512
-DEFAULT_RECV_MAX = 64
 CONNECT_TIMEOUT_S = 2.0
 IO_TIMEOUT_S = 2.0
 CASE_TIMEOUT_S = 15.0
@@ -38,32 +43,8 @@ class BridgeError(RuntimeError):
     pass
 
 
-def read_exact(pipe, n: int) -> bytes:
-    buf = bytearray()
-    while len(buf) < n:
-        chunk = pipe.read(n - len(buf))
-        if not chunk:
-            raise BridgeError(f"goose pipe EOF after {len(buf)}/{n} bytes")
-        buf.extend(chunk)
-    return bytes(buf)
-
-
-def read_msg(pipe) -> Tuple[int, bytes]:
-    hdr = read_exact(pipe, 3)
-    kind, length = hdr[0], (hdr[1] << 8) | hdr[2]
-    if length > IPC_MAX:
-        raise BridgeError(f"ipc payload {length} > {IPC_MAX}")
-    payload = read_exact(pipe, length) if length else b""
-    return kind, payload
-
-
-def write_msg(pipe, kind: int, payload: bytes = b"") -> None:
-    if len(payload) > IPC_MAX:
-        raise BridgeError(f"ipc payload {len(payload)} > {IPC_MAX}")
-    pipe.write(bytes([kind, (len(payload) >> 8) & 0xFF, len(payload) & 0xFF]))
-    if payload:
-        pipe.write(payload)
-    pipe.flush()
+def remaining_s(deadline: float) -> float:
+    return max(0.0, deadline - time.monotonic())
 
 
 def classify_socket_error(exc: BaseException) -> str:
@@ -84,12 +65,55 @@ def classify_socket_error(exc: BaseException) -> str:
     return f"ERROR:{type(exc).__name__}"
 
 
-def connect_tcp(host: str, port: int) -> socket.socket:
-    sock = socket.create_connection((host, port), timeout=CONNECT_TIMEOUT_S)
-    sock.settimeout(IO_TIMEOUT_S)
-    # Disable Nagle so short MQTT control packets flush promptly.
+def connect_tcp(host: str, port: int, deadline: float) -> socket.socket:
+    timeout = min(CONNECT_TIMEOUT_S, remaining_s(deadline) or CONNECT_TIMEOUT_S)
+    if timeout <= 0:
+        raise BridgeError("CASE_TIMEOUT")
+    sock = socket.create_connection((host, port), timeout=timeout)
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     return sock
+
+
+def write_msg(pipe, kind: int, payload: bytes = b"") -> None:
+    if len(payload) > IPC_MAX:
+        raise BridgeError(f"ipc payload {len(payload)} > {IPC_MAX}")
+    pipe.write(bytes([kind, (len(payload) >> 8) & 0xFF, len(payload) & 0xFF]))
+    if payload:
+        pipe.write(payload)
+    pipe.flush()
+
+
+def read_exact(pipe, n: int, deadline: float) -> bytes:
+    buf = bytearray()
+    while len(buf) < n:
+        left = remaining_s(deadline)
+        if left <= 0:
+            raise BridgeError("CASE_TIMEOUT")
+        # Avoid blocking past the case deadline on the Goose pipe.
+        readable, _, _ = select.select([pipe], [], [], left)
+        if not readable:
+            raise BridgeError("CASE_TIMEOUT")
+        chunk = pipe.read(n - len(buf))
+        if not chunk:
+            raise BridgeError(f"goose pipe EOF after {len(buf)}/{n} bytes")
+        buf.extend(chunk)
+    return bytes(buf)
+
+
+def read_msg(pipe, deadline: float) -> Tuple[int, bytes]:
+    hdr = read_exact(pipe, 3, deadline)
+    kind, length = hdr[0], (hdr[1] << 8) | hdr[2]
+    if length > IPC_MAX:
+        raise BridgeError(f"ipc payload {length} > {IPC_MAX}")
+    payload = read_exact(pipe, length, deadline) if length else b""
+    return kind, payload
+
+
+def set_sock_timeout(sock: socket.socket, deadline: float) -> None:
+    left = remaining_s(deadline)
+    if left <= 0:
+        raise BridgeError("CASE_TIMEOUT")
+    sock.settimeout(min(IO_TIMEOUT_S, left))
 
 
 def run_bridge(
@@ -102,8 +126,9 @@ def run_bridge(
     events: List[str] = []
     peer_close: Optional[str] = None
     deadline = time.monotonic() + case_timeout_s
+    timed_out = threading.Event()
 
-    sock = connect_tcp(host, port)
+    sock = connect_tcp(host, port, deadline)
     proc = subprocess.Popen(
         goose_cmd,
         stdin=subprocess.PIPE,
@@ -113,19 +138,55 @@ def run_bridge(
     )
     assert proc.stdin is not None and proc.stdout is not None
 
+    def watchdog() -> None:
+        delay = remaining_s(deadline)
+        if delay > 0:
+            timed_out.wait(timeout=delay)
+        if proc.poll() is None:
+            timed_out.set()
+            try:
+                proc.kill()
+            except OSError:
+                pass
+            # Unblock any stuck pipe read in the parent.
+            try:
+                if proc.stdout:
+                    proc.stdout.close()
+            except OSError:
+                pass
+            try:
+                if proc.stdin:
+                    proc.stdin.close()
+            except OSError:
+                pass
+
+    watcher = threading.Thread(target=watchdog, name="bridge-watchdog", daemon=True)
+    watcher.start()
+
     try:
         while True:
-            if time.monotonic() > deadline:
+            if timed_out.is_set() or remaining_s(deadline) <= 0:
                 raise BridgeError("CASE_TIMEOUT")
-            kind, payload = read_msg(proc.stdout)
+            kind, payload = read_msg(proc.stdout, deadline)
             if kind == MSG_SEND:
+                if not payload:
+                    write_msg(proc.stdin, MSG_DATA, b"\x00\x00")
+                    continue
                 try:
-                    view = memoryview(payload)
-                    while view:
-                        n = sock.send(view)
-                        if n == 0:
-                            raise BrokenPipeError("send returned 0")
-                        view = view[n:]
+                    set_sock_timeout(sock, deadline)
+                    # One send() — report actual short-write count; Goose commits that.
+                    sent = sock.send(payload)
+                    if sent < 0:
+                        raise OSError("send returned negative")
+                    if sent == 0:
+                        raise BrokenPipeError("send returned 0")
+                    write_msg(
+                        proc.stdin,
+                        MSG_DATA,
+                        bytes([(sent >> 8) & 0xFF, sent & 0xFF]),
+                    )
+                except BridgeError:
+                    raise
                 except BaseException as exc:
                     reason = classify_socket_error(exc)
                     peer_close = reason
@@ -137,12 +198,15 @@ def run_bridge(
                 if max_n <= 0 or max_n > IPC_MAX:
                     raise BridgeError(f"bad max_n {max_n}")
                 try:
+                    set_sock_timeout(sock, deadline)
                     data = sock.recv(max_n)
                     if data == b"":
                         peer_close = peer_close or "EOF"
                         write_msg(proc.stdin, MSG_DATA, b"")
                     else:
                         write_msg(proc.stdin, MSG_DATA, data)
+                except BridgeError:
+                    raise
                 except BaseException as exc:
                     reason = classify_socket_error(exc)
                     peer_close = reason
@@ -151,6 +215,7 @@ def run_bridge(
                 events.append(payload.decode("utf-8", errors="replace"))
             elif kind == MSG_DONE:
                 code = payload[0] if payload else 0
+                timed_out.set()  # stop watchdog wait
                 return code, events, peer_close
             elif kind == MSG_FATAL:
                 msg = payload.decode("utf-8", errors="replace")
@@ -160,24 +225,39 @@ def run_bridge(
                     sock.shutdown(socket.SHUT_RDWR)
                 except OSError:
                     pass
-                sock.close()
-                sock = connect_tcp(host, port)
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+                sock = connect_tcp(host, port, deadline)
                 write_msg(proc.stdin, MSG_DATA, b"")
             else:
                 raise BridgeError(f"unknown goose msg {kind}")
     finally:
+        timed_out.set()
         try:
             sock.close()
         except OSError:
             pass
         if proc.poll() is None:
-            proc.kill()
-        stderr = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        stderr = ""
+        if proc.stderr:
+            try:
+                stderr = proc.stderr.read().decode("utf-8", errors="replace")
+            except OSError:
+                stderr = ""
         if stderr.strip():
             sys.stderr.write(stderr)
             if not stderr.endswith("\n"):
                 sys.stderr.write("\n")
-        proc.wait(timeout=2)
+        try:
+            proc.wait(timeout=2)
+        except Exception:
+            pass
 
 
 def main() -> int:
@@ -210,6 +290,11 @@ def main() -> int:
         print(f"EVENT {ev}")
     if peer_close:
         print(f"PEER_CLOSE {peer_close}")
+    print(
+        "BRIDGE_QUOTAS "
+        f"ipc_max={IPC_MAX} connect_timeout_s={CONNECT_TIMEOUT_S} "
+        f"io_timeout_s={IO_TIMEOUT_S} case_timeout_s={args.case_timeout}"
+    )
     print(f"EXIT {code}")
     return 0 if code == 0 else 1
 

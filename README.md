@@ -239,13 +239,13 @@ packages from the root file only).
 
 ### TCP broker interop (`examples/tcp`)
 
-Goose has no TCP API. M3 interop uses a **Python socket bridge** that owns
-bounded loopback I/O and drives `examples/tcp/session.goose` (stream adapter +
-typed codecs) over length-prefixed stdin/stdout. Independent brokers: Mosquitto
-2.0.18 and Aedes 0.51.3. Scenarios cover positive CONNECT/SUBSCRIBE/PUBLISH/
-PING/DISCONNECT, malformed reserved-type closure (EOF/RESET/TIMEOUT reported
-separately), and reconnect with the same client id. See
-`examples/tcp/INTEROP.md` for bounds, versions, reproduction, and matrix.
+Goose has no TCP API. M3 interop uses a **Python socket bridge** that moves
+bounded TCP chunks and returns actual `send()` counts; Goose applies
+`stream` feed/frame/commit and enqueue/drain/commit plus typed codecs (Python
+does not frame MQTT). Independent brokers: Mosquitto 2.0.18 and Aedes 0.51.3
+on ephemeral loopback listeners. Scenarios cover verified PUBLISH delivery,
+malformed closure (EOF/RESET only for PASS), and same-id reconnect. See
+`examples/tcp/INTEROP.md` for quotas/timeouts, versions, and matrix.
 Not a socket stack inside the library and not conformance certification.
 
 ## Use

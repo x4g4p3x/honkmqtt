@@ -1,26 +1,29 @@
 {
   "meta": {
     "honkmqtt_root": "/mnt/c/Users/x4g4p/.ao/data/worktrees/honkmqtt/honkmqtt-2",
-    "session_sha256": "4732245045a6cdd1af5f6a2fbe194077cdb5b491d2dd634472694e4fd6a23fa7",
-    "bridge_sha256": "ed5f6fac768fb77003bc34fb0494bf5d4032fa3eb94869d8d79a0ccc13546833",
+    "session_sha256": "402afb88111c0271886b2687e3701920f7708bc004a4558b54c80c7c2fbd2e4c",
+    "bridge_sha256": "1d162a20cd8430505f7cb060f99a5b7c2437ce9d1c1175a2178098dcc64c81f5",
     "stream_sha256": "5eaa10314d98df22f761017a656bd353745deb3970e41005914964630c5b1f15",
     "bounds": {
       "rx_cap": 256,
       "tx_cap": 256,
       "max_body": 251,
       "recv_max": 64,
+      "recv_cap_rule": "min(64, rx_free)",
       "ipc_max": 512,
       "connect_timeout_s": 2.0,
       "io_timeout_s": 2.0,
-      "case_timeout_s": 15.0
+      "case_timeout_s": 15.0,
+      "send_ack": "socket.send byte count; Goose commit_tx(exact)"
     },
-    "architecture": "Python TCP bridge owns sockets; Goose session.goose drives examples/stream feed/drain and honkmqtt typed codecs over length-prefixed stdin/stdout IPC. Core honkmqtt.goose unchanged."
+    "architecture": "Python TCP bridge moves bounded socket chunks and returns actual send() counts; Goose applies stream::feed/frame/commit_rx and stream::enqueue/drain/commit_tx plus typed codecs. Python does not frame MQTT. Core honkmqtt.goose unchanged.",
+    "broker_service_note": "apt mosquitto postinst may enable systemd mosquitto.service; this harness stops/disables that unit and uses only ephemeral 127.0.0.1 listeners with TemporaryDirectory cleanup."
   },
   "results": [
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "8d31380bc1c3a03ce2388af1ebf6e07b1f0304bd7c2dc571d0cffc39adda842a",
+      "broker_conf_sha256": "baa92eae6ee88e5dedd44605353870815781c21e44c9693a94a31285859ac5f1",
       "scenario": "positive",
       "client_id": "honk-m3-mosquitto-positive",
       "ok": true,
@@ -28,10 +31,11 @@
       "goose_exit": 0,
       "events": [
         "BOUNDS rx=256 tx=256 max_body=251 recv_max=64 ipc_max=512",
+        "BRIDGE_MODEL send_ack=socket.send_count recv_cap=min(64,rx_free)",
         "CONNACK session=0 code=0",
         "SUBACK id=7 code=0",
         "PUBLISH qos0 sent",
-        "PUBLISH inbound skipped",
+        "PUBLISH verified topic=m3/t payload=hi!",
         "PINGRESP ok",
         "DISCONNECT sent"
       ],
@@ -41,7 +45,7 @@
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "8d31380bc1c3a03ce2388af1ebf6e07b1f0304bd7c2dc571d0cffc39adda842a",
+      "broker_conf_sha256": "baa92eae6ee88e5dedd44605353870815781c21e44c9693a94a31285859ac5f1",
       "scenario": "malformed",
       "client_id": "honk-m3-mosquitto-malformed",
       "ok": true,
@@ -50,7 +54,11 @@
       "events": [
         "CONNACK session=0 code=0",
         "MALFORMED sent type=0",
-        "PEER_CLOSE reason=EOF"
+        "PEER_CLOSE reason=EOF",
+        "RECONNECTED after malformed",
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent"
       ],
       "peer_close": "EOF",
       "stderr": ""
@@ -58,7 +66,7 @@
     {
       "broker": "mosquitto",
       "broker_version": "2.0.18",
-      "broker_conf_sha256": "8d31380bc1c3a03ce2388af1ebf6e07b1f0304bd7c2dc571d0cffc39adda842a",
+      "broker_conf_sha256": "baa92eae6ee88e5dedd44605353870815781c21e44c9693a94a31285859ac5f1",
       "scenario": "reconnect",
       "client_id": "honk-m3-mosquitto-reconnect",
       "ok": true,
@@ -87,9 +95,11 @@
       "goose_exit": 0,
       "events": [
         "BOUNDS rx=256 tx=256 max_body=251 recv_max=64 ipc_max=512",
+        "BRIDGE_MODEL send_ack=socket.send_count recv_cap=min(64,rx_free)",
         "CONNACK session=0 code=0",
         "SUBACK id=7 code=0",
         "PUBLISH qos0 sent",
+        "PUBLISH verified topic=m3/t payload=hi!",
         "PINGRESP ok",
         "DISCONNECT sent"
       ],
@@ -108,7 +118,11 @@
       "events": [
         "CONNACK session=0 code=0",
         "MALFORMED sent type=0",
-        "PEER_CLOSE reason=EOF"
+        "PEER_CLOSE reason=EOF",
+        "RECONNECTED after malformed",
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent"
       ],
       "peer_close": "EOF",
       "stderr": ""
