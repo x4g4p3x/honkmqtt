@@ -258,6 +258,41 @@ fn short_writes_commit_only() {
     assert(d4 == stream::WAIT && dn4 == 0);
 }
 
+// Enqueue must compact when the packet does not fit the remaining tail even
+// though unused tail bytes remain (start > 0, end < capacity). Packet storage
+// is a separate buffer (full-TX disjointness).
+fn enqueue_compact_with_partly_free_tail() {
+    var tx: u8[TX_CAP] = [0; TX_CAP];
+    fill(tx, 0xee);
+    var s = 0;
+    var e = 0;
+
+    var prefix: u8[20] = [0; 20];
+    for i in prefix.len { prefix[i] = (i + 1) as u8; }
+    let e0, s0, e0e = stream::enqueue(tx, s, e, prefix);
+    assert(e0 == stream::OK && s0 == 0 && e0e == 20);
+    s = s0;
+    e = e0e;
+
+    let _, ns, ne = stream::commit_tx(s, e, 10);
+    s = ns;
+    e = ne;
+    assert(s == 10 && e == 20);
+    // Tail free = 12, total free = 22; packet len 15 needs compact.
+    assert(TX_CAP - e == 12);
+    assert(TX_CAP - (e - s) == 22);
+
+    // Mark consumed head so a successful compact must overwrite it.
+    for i in s { tx[i] = 0xaa; }
+
+    var pkt: u8[15] = [0; 15];
+    for i in pkt.len { pkt[i] = (0x40 + i) as u8; }
+    let e1, s1, e1e = stream::enqueue(tx, s, e, pkt);
+    assert(e1 == stream::OK && s1 == 0 && e1e == 25);
+    eq_prefix(tx[0..10], [11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
+    eq_prefix(tx[10..25], pkt);
+}
+
 fn main() {
     capacity_contract();
     feed_short_and_wait();
@@ -267,5 +302,6 @@ fn main() {
     fatal_framing_stops();
     rx_backpressure_and_compact();
     short_writes_commit_only();
+    enqueue_compact_with_partly_free_tail();
     print("Transport adapter tests passed");
 }
