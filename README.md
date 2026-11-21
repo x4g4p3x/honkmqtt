@@ -137,7 +137,7 @@ Requested QoS bytes must be exactly 0..2. Duplicates are accepted structurally.
 Pairing with SUBACK and session behavior are out of scope.
 `encode_subscribe(packet_id, list, out)` takes a **pre-encoded** filter/QoS
 list blob (same layout as the payload), validates it before the first write,
-and requires non-overlapping `out`.
+and requires that `list` and `out` must not overlap.
 
 `suback(input, max_body)` parses one SUBACK (§3.9) and returns
 `(status, consumed, packet_id, codes_off, codes_len)`. Fixed flags `0x90`;
@@ -145,7 +145,8 @@ Remaining Length at least `SUBACK_MIN_REMAINING` (3) before body availability;
 nonzero Packet Identifier; one or more return codes in
 `{0,1,2,0x80}` (`SUBACK_QOS0`..`SUBACK_FAILURE`). Count matching against a
 prior SUBSCRIBE is the caller's concern.
-`encode_suback(packet_id, codes, out)` takes the pre-encoded return-code bytes.
+`encode_suback(packet_id, codes, out)` takes the pre-encoded return-code bytes
+and requires that `codes` and `out` must not overlap.
 Both encoders leave `out` unchanged on `INVALID` / `NO_SPACE`
 (`INVALID` before capacity).
 
