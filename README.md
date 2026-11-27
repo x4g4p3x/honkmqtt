@@ -1,4 +1,4 @@
-# HonkMQTT
+<h1><img src="docs/assets/honkmqtt-logo.png" alt="HonkMQTT" width="600"></h1>
 
 MQTT 3.1.1 packet codec and topic matching for Goose.
 
