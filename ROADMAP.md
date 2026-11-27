@@ -15,7 +15,7 @@ MQTT 5 support is a later product decision, not an implicit commitment.
 
 As of M0 Exit on `cf8dbed`, M1 Exit on `fc12ece` (`encode_publish` baselines),
 M2 Exit on `bb5e5d3` (all 14 MQTT 3.1.1 types with typed parse/encode), and the
-M3 bounded transport-adapter slice (in progress), the library has fixed-header
+M3 transport work (in progress), the library has fixed-header
 parsing, bounded frame detection, opaque-body encoding, PUBLISH parse/encode
 with limit vectors, PUBACK/PUBREC/PUBREL/PUBCOMP, CONNACK, CONNECT,
 SUBSCRIBE/SUBACK, UNSUBSCRIBE/UNSUBACK, PINGREQ/PINGRESP/DISCONNECT
@@ -33,9 +33,11 @@ steady-state samples for encode/frame/match, PUBLISH parse, and
 captures are in `baselines/m0-local-*.md` and `baselines/m1-local-*.md`
 (Ubuntu 24.04 under WSL2 for Linux). Goose v2026.4 has no source-mapped
 coverage mechanism in its documented CLI, so there is no measured coverage
-percentage. There is still no broker interoperability result or MQTT
-conformance certification. The PUBLISH codec does not implement QoS or session
-state.
+percentage. M3 has recorded loopback interoperability results for Mosquitto
+2.0.18 and Aedes 0.51.3 from PR #16 at `3c77de9`. The case matrix and its scope
+are in [the TCP interop record](examples/tcp/INTEROP.md). MQTT conformance
+certification remains outside this evidence. The PUBLISH codec does not
+implement QoS or session state.
 
 ## Milestones
 
@@ -206,8 +208,11 @@ security, or interoperability claim).
   `examples/tcp/interop_results.json`. Core unchanged. Not conformance.
 - [ ] Run a repeatable fuzz/randomized campaign and assess failures, memory
   limits, denial-of-service behavior, and independent protocol vectors. Add
-  regressions. (Existing `tests/fuzz.goose` remains a codec smoke campaign, not
-  this M3 transport/resource assessment.)
+  regressions. The seeded replay checks short I/O for a fixed MQTT stream,
+  buffer occupancy, bounded replay progress, and zero consumption at the
+  configured body limit. [Transport regression record](examples/stream/REGRESSION.md)
+  `tests/fuzz.goose` supplies separate codec smoke evidence. Broader randomized
+  transport inputs and TCP, bridge, and process resource limits remain open.
 - [ ] Test end-to-end representative workloads; record throughput, latency,
   memory, runtime configuration and variability without universal speed claims.
 

@@ -313,6 +313,8 @@ capacity, and encode sentinels. `tests/transport.goose` holds independent
 bounded transport-adapter vectors for short reads/writes, fragmented multibyte
 Remaining Length headers, adjacent frames, clean vs truncated EOF, RX/TX
 backpressure, zero-progress `WAIT`, and exact echoed wire ordering.
+The [transport regression record](examples/stream/REGRESSION.md) gives the
+seeded replay commands, cross-platform counters, and scope.
 `examples/transport.goose` is the runnable demo. `tests/coverage.goose` remains
 a combinatorial flags/length exercise;
 it is **not** measured line coverage. Goose v2026.4 exposes no source-mapped

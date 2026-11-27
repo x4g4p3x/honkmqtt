@@ -2,14 +2,11 @@
 // Exact wire bytes and ordering are asserted; short I/O is deterministic.
 import honkmqtt from "..";
 import stream from "../examples/stream";
+import std;
 
 const RX_CAP = 64;
 const TX_CAP = 32;
 const MAX_BODY = RX_CAP - stream::HEADER_MAX; // 59
-
-fn fill(buf: u8[:], v: u8) {
-    for i in buf.len { buf[i] = v; }
-}
 
 fn eq_prefix(got: const u8[:], expect: const u8[:]) {
     assert(got.len >= expect.len);
@@ -391,6 +388,171 @@ fn enqueue_compact_with_partly_free_tail() {
     eq_prefix(tx[10..25], pkt);
 }
 
+fn body_limit_in_rx_window(prefix: const u8[:]) {
+    var rx: u8[133] = [0xa5; 133];
+    let fed, start, end, taken = stream::feed(rx, 0, 0, prefix, prefix.len);
+    assert(fed == stream::OK && start == 0 && end == 5 && taken == 5);
+    let committed, s, e = stream::commit_rx(start, end, 2);
+    assert(committed == stream::OK && s == 2 && e == 5);
+    // The complete header declares 128 bytes; the body has not arrived.
+    let at_limit, used_at = honkmqtt::frame(rx[s..e], 128);
+    assert(at_limit == honkmqtt::INCOMPLETE && used_at == 0);
+    let over_limit, used_over = honkmqtt::frame(rx[s..e], 127);
+    assert(over_limit == honkmqtt::INVALID && used_over == 0);
+    eq_prefix(rx[0..e], prefix);
+    for i in rx.len - e { assert(rx[e + i] == 0xa5); }
+}
+
+fn seeded_transport_replay() {
+    // MQTT 3.1.1 §§2.2.2–2.2.3: PINGREQ, QoS 0 PUBLISH (RL=128,
+    // topic "t", payload 0..124), PUBACK, PINGREQ, PUBACK, DISCONNECT.
+    // The wire and frame offsets are independent of all codec outputs.
+    let wire: u8[145] = [
+        0xc0, 0x00, 0x30, 0x80, 0x01, 0x00, 0x01, 0x74,
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+        16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+        32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47,
+        48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
+        64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79,
+        80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95,
+        96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109,
+        110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124,
+        0x40, 0x02, 0x12, 0x34, 0xc0, 0x00, 0x40, 0x02, 0x56, 0x78, 0xe0, 0x00,
+    ];
+    let offsets = [0, 2, 133, 137, 139, 143, 145];
+    body_limit_in_rx_window(wire[0..5]);
+
+    let seed: u64 = 20261127;
+    let cases = 128;
+    var incomplete = 0;
+    var rx_wait = 0;
+    var rx_compact = 0;
+    var tx_blocked = 0;
+    var tx_wait = 0;
+    var tx_short = 0;
+    var tx_compact = 0;
+    var peak_rx = 0;
+    var peak_tx = 0;
+    var peak_turns = 0;
+    var peak_idle = 0;
+    for case in cases {
+        var schedule = rng { seed + (case as u64) };
+        var rx:   u8[133] = [0; 133];
+        var tx:   u8[131] = [0; 131];
+        var sink: u8[145] = [0; 145];
+        assert(rx.len == stream::rx_capacity_for(128));
+        var rs = 0;
+        var re = 0;
+        var ts = 0;
+        var te = 0;
+        var read = 0;
+        var sent = 0;
+        var packet = 0;
+        var turns = 0;
+        var idle = 0;
+        while sent < wire.len {
+            turns += 1;
+            assert(turns <= 4 * wire.len);
+            let read_cap = schedule.rand_int(17);
+            let write_cap = schedule.rand_int(6);
+            let before = read + offsets[packet] + sent;
+            if read < wire.len {
+                let status, s, e, n = stream::feed(rx, rs, re, wire[read..], read_cap);
+                if read_cap == 0 {
+                    assert(status == stream::WAIT && s == rs && e == re && n == 0);
+                    rx_wait += 1;
+                } else if rs == 0 && re == rx.len {
+                    assert(status == stream::NO_SPACE && s == rs && e == re && n == 0);
+                } else {
+                    assert(status == stream::OK && n > 0);
+                    var append_at = re;
+                    if re == rx.len {
+                        append_at -= rs;
+                        assert(s == 0);
+                        rx_compact += 1;
+                    } else {
+                        assert(s == rs);
+                    }
+                    assert(e == append_at + n);
+                    assert(n == min(min(read_cap, wire.len - read), rx.len - append_at));
+                }
+                rs = s;
+                re = e;
+                read += n;
+            }
+            let framed = offsets[packet];
+            assert(rs >= 0 && re <= rx.len && re - rs == read - framed);
+            eq_prefix(rx[rs..re], wire[framed..read]);
+            peak_rx = max(peak_rx, re - rs);
+            if framed < read {
+                let next = offsets[packet + 1];
+                let status, used = honkmqtt::frame(rx[rs..re], 128);
+                if read < next {
+                    assert(status == honkmqtt::INCOMPLETE && used == 0);
+                    incomplete += 1;
+                } else {
+                    assert(status == honkmqtt::OK && used == next - framed);
+                    let queued, s, e = stream::enqueue(tx, ts, te, rx[rs..rs + used]);
+                    if used > tx.len - (te - ts) {
+                        assert(queued == stream::NO_SPACE && s == ts && e == te);
+                        tx_blocked += 1;
+                    } else {
+                        assert(queued == stream::OK);
+                        if used > tx.len - te {
+                            assert(s == 0 && e == te - ts + used);
+                            tx_compact += 1;
+                        } else {
+                            assert(s == ts && e == te + used);
+                        }
+                        ts = s;
+                        te = e;
+                        let committed, ns, ne = stream::commit_rx(rs, re, used);
+                        assert(committed == stream::OK && ns == rs + used && ne == re);
+                        rs = ns;
+                        packet += 1;
+                    }
+                }
+            }
+            assert(re - rs == read - offsets[packet]);
+            assert(ts >= 0 && te <= tx.len && te - ts == offsets[packet] - sent);
+            eq_prefix(tx[ts..te], wire[sent..offsets[packet]]);
+            peak_tx = max(peak_tx, te - ts);
+            let write, n = stream::drain(ts, te, write_cap);
+            assert(n == min(write_cap, te - ts));
+            if n == 0 {
+                assert(write == stream::WAIT);
+                if te > ts { tx_wait += 1; }
+            } else {
+                assert(write == stream::OK);
+                if n < te - ts { tx_short += 1; }
+                for i in n { sink[sent + i] = tx[ts + i]; }
+                let committed, s, e = stream::commit_tx(ts, te, n);
+                assert(committed == stream::OK && s == ts + n && e == te);
+                ts = s;
+                sent += n;
+            }
+            if before == read + offsets[packet] + sent {
+                idle += 1;
+                assert(idle <= 16);
+                peak_idle = max(peak_idle, idle);
+            } else {
+                idle = 0;
+            }
+        }
+        assert(read == wire.len && packet == offsets.len - 1 && rs == re && ts == te);
+        eq_prefix(sink, wire);
+        peak_turns = max(peak_turns, turns);
+    }
+    print("Transport replay seed=", seed, " cases=", cases, " frames=", cases * (offsets.len - 1),
+          " bytes=", cases * wire.len, " peak_rx=", peak_rx, " peak_tx=", peak_tx,
+          " peak_turns=", peak_turns, " peak_idle=", peak_idle);
+    print("Transport replay incomplete=", incomplete, " rx_wait=", rx_wait, " rx_compact=", rx_compact,
+          " tx_blocked=", tx_blocked, " tx_wait=", tx_wait, " tx_short=", tx_short, " tx_compact=", tx_compact);
+    assert(incomplete > 0 && rx_wait > 0 && rx_compact > 0);
+    assert(tx_blocked > 0 && tx_wait > 0 && tx_short > 0 && tx_compact > 0);
+    assert(peak_rx >= 131 && peak_tx == 131);
+}
+
 fn main() {
     capacity_contract();
     feed_short_and_wait();
@@ -404,5 +566,6 @@ fn main() {
     coalesced_frames_before_eof();
     short_writes_commit_only();
     enqueue_compact_with_partly_free_tail();
+    seeded_transport_replay();
     print("Transport adapter tests passed");
 }
