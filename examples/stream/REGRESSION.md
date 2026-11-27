@@ -76,11 +76,35 @@ Transport replay incomplete=1950 rx_wait=116 rx_compact=128 tx_blocked=250 tx_wa
 `peak_idle` are maxima over individual replays. The second line totals events
 across the campaign. `tx_wait` counts zero-cap drain calls with pending bytes.
 
+The same test now adds a second reproducible campaign of **64** independently
+assembled valid streams using seed `20261128 + case_index`. Each stream contains
+1–24 frames chosen from independent MQTT wire vectors for PINGREQ, PINGRESP,
+DISCONNECT, two PUBACK identifiers, CONNACK, and a QoS 0 PUBLISH. Read caps
+vary from 1–11 bytes; the 32-byte RX array is drained as complete frames are
+accepted. The default run reports 773 frames / 2,694 bytes, a 32-byte peak RX
+window, and 28 incomplete-frame observations. Expected bytes are assembled from
+the literal vector table; the two PUBACK variants are also checked with the
+typed parser. Separate tests pin zero-consumption behavior for a truncated
+remaining-length continuation and a four-byte maximum remaining length rejected
+against a 128-byte body cap, with sentinels checked after each input.
+
+`examples/tcp/test_resources.py` is a controlled loopback-only resource smoke
+check. It verifies that IPC rejects payload lengths above 512 bytes, a RECV
+request for four bytes admits only four bytes from a socket with more data, and
+a silent fake Goose child is killed and reaped at a 0.35-second case deadline.
+It also checks the declared errors for a watchdog-interrupted pipe read. Run it
+with `python3 examples/tcp/test_resources.py`; it does not start a broker or
+contact an external host.
+
 ## Remaining M3 work
 
-This replay varies the I/O schedule over one fixed byte stream. Broader
-randomized transport inputs and runtime resource bounds across TCP sockets,
-the bridge, and the process still need evidence. The live-byte and turn
-counters describe only this fixture. Representative end-to-end throughput,
-latency, memory, runtime configuration, and variability remain unmeasured.
+The seeded replay varies the I/O schedule over one fixed byte stream; the
+additional campaign varies frame order, frame count, and read fragmentation
+over a bounded set of valid wire vectors. This remains a deterministic smoke
+campaign, not fuzzing, exhaustive sequence coverage, a memory-safety proof, or
+an MQTT conformance result. The TCP smoke covers one loopback read cap, an IPC
+size boundary, and one silent-child deadline path; it does not characterize
+resource use under load or every cleanup/error branch. Representative end-to-end
+throughput, latency, memory, runtime configuration, and variability remain
+unmeasured.
 The separate loopback broker evidence comes from PR #16. [TCP interop record](../tcp/INTEROP.md)
