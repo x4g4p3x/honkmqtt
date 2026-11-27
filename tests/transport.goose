@@ -403,6 +403,112 @@ fn body_limit_in_rx_window(prefix: const u8[:]) {
     for i in rx.len - e { assert(rx[e + i] == 0xa5); }
 }
 
+// Independent MQTT 3.1.1 §2.2 vectors, assembled into bounded varied frame
+// sequences. The seeded choices vary frame order, count, and short-read size;
+// expected wire bytes come from this table, not from an encoder/parser pair.
+fn copy_vector(id: i64, out: u8[:], at: i64) -> i64 {
+    if id == 0 { out[at] = 0xc0; out[at + 1] = 0x00; return 2; }
+    if id == 1 { out[at] = 0xd0; out[at + 1] = 0x00; return 2; }
+    if id == 2 { out[at] = 0xe0; out[at + 1] = 0x00; return 2; }
+    if id == 3 { out[at] = 0x40; out[at + 1] = 0x02; out[at + 2] = 0x12; out[at + 3] = 0x34; return 4; }
+    if id == 4 { out[at] = 0x40; out[at + 1] = 0x02; out[at + 2] = 0xab; out[at + 3] = 0xcd; return 4; }
+    if id == 5 { out[at] = 0x20; out[at + 1] = 0x02; out[at + 2] = 0x00; out[at + 3] = 0x00; return 4; }
+    if id == 6 { out[at] = 0x30; out[at + 1] = 0x04; out[at + 2] = 0x00; out[at + 3] = 0x01; out[at + 4] = 0x74; out[at + 5] = 0x7a; return 6; }
+    assert(false);
+    return 0;
+}
+
+fn seeded_varied_valid_sequences() {
+    const CASES = 64;
+    const MAX_FRAMES = 24;
+    const MAX_WIRE = MAX_FRAMES * 6;
+    const RX = 32;
+    const seed: u64 = 20261128;
+    var total_frames = 0;
+    var total_bytes = 0;
+    var peak_rx = 0;
+    var incomplete = 0;
+    for case in CASES {
+        var schedule = rng { seed + case as u64 };
+        let count = 1 + schedule.rand_int(MAX_FRAMES);
+        var kinds:    i64[24] = [0; 24];
+        var begins:   i64[25] = [0; 25];
+        var expected: u8[144] = [0; 144];
+        var wire_len = 0;
+        for n in count {
+            let kind = schedule.rand_int(7);
+            kinds[n] = kind;
+            begins[n + 1] = begins[n] + copy_vector(kind, expected, wire_len);
+            wire_len = begins[n + 1];
+        }
+
+        var rx: u8[32] = [0xa5; 32];
+        var rs = 0;
+        var re = 0;
+        var admitted = 0;
+        var handled = 0;
+        while handled < count {
+            if admitted < wire_len {
+                let cap = 1 + schedule.rand_int(11);
+                let fs, ns, ne, n = stream::feed(rx, rs, re, expected[admitted..wire_len], cap);
+                assert(fs == stream::OK && n > 0 && n <= cap);
+                rs = ns;
+                re = ne;
+                admitted += n;
+            }
+            peak_rx = max(peak_rx, re - rs);
+            let frame_status, consumed = honkmqtt::frame(rx[rs..re], 16);
+            if admitted < begins[handled + 1] {
+                assert(frame_status == honkmqtt::INCOMPLETE && consumed == 0);
+                incomplete += 1;
+            } else {
+                assert(frame_status == honkmqtt::OK);
+                assert(consumed == begins[handled + 1] - begins[handled]);
+                eq_prefix(rx[rs..rs + consumed], expected[begins[handled]..begins[handled + 1]]);
+                if kinds[handled] == 3 || kinds[handled] == 4 {
+                    let ack, used, id = honkmqtt::pubresp(rx[rs..rs + consumed], honkmqtt::PUBACK);
+                    assert(ack == honkmqtt::OK && used == consumed);
+                    if kinds[handled] == 3 { assert(id == 0x1234); }
+                    else { assert(id == 0xabcd); }
+                }
+                let cs, ns, ne = stream::commit_rx(rs, re, consumed);
+                assert(cs == stream::OK);
+                rs = ns;
+                re = ne;
+                handled += 1;
+            }
+            assert(re - rs <= 32 && admitted - begins[handled] == re - rs);
+        }
+        assert(admitted == wire_len && rs == re);
+        total_frames += count;
+        total_bytes += wire_len;
+    }
+    print("Varied transport seed=", seed, " cases=", CASES, " frames=", total_frames,
+          " bytes=", total_bytes, " peak_rx=", peak_rx, " incomplete=", incomplete);
+    assert(total_frames > 700 && total_bytes < 64 * 144 && peak_rx <= 32 && incomplete > 0);
+}
+
+fn malformed_length_window_contracts() {
+    // Remaining Length continuation with no terminator yet is incomplete and
+    // consumes zero. Four-byte maximum is rejected against the configured cap
+    // before the declared body arrives; the input remains byte-for-byte intact.
+    var rx: u8[8] = [0xa5; 8];
+    let truncated: u8[3] = [0x30, 0x80, 0x80];
+    let fs, s, e, n = stream::feed(rx, 0, 0, truncated, 3);
+    assert(fs == stream::OK && s == 0 && e == 3 && n == 3);
+    let incomplete, used = honkmqtt::frame(rx[0..3], 128);
+    assert(incomplete == honkmqtt::INCOMPLETE && used == 0);
+    assert(rx[0] == 0x30 && rx[1] == 0x80 && rx[2] == 0x80 && rx[3] == 0xa5);
+
+    let too_large: u8[5] = [0x30, 0xff, 0xff, 0xff, 0x7f];
+    let fs2, s2, e2, n2 = stream::feed(rx, 0, 0, too_large, 5);
+    assert(fs2 == stream::OK && s2 == 0 && e2 == 5 && n2 == 5);
+    let invalid, used2 = honkmqtt::frame(rx[0..5], 128);
+    assert(invalid == honkmqtt::INVALID && used2 == 0);
+    assert(rx[0] == 0x30 && rx[1] == 0xff && rx[2] == 0xff && rx[3] == 0xff && rx[4] == 0x7f);
+    assert(rx[5] == 0xa5 && rx[6] == 0xa5 && rx[7] == 0xa5);
+}
+
 fn seeded_transport_replay() {
     // MQTT 3.1.1 §§2.2.2–2.2.3: PINGREQ, QoS 0 PUBLISH (RL=128,
     // topic "t", payload 0..124), PUBACK, PINGREQ, PUBACK, DISCONNECT.
@@ -566,6 +672,8 @@ fn main() {
     coalesced_frames_before_eof();
     short_writes_commit_only();
     enqueue_compact_with_partly_free_tail();
+    malformed_length_window_contracts();
+    seeded_varied_valid_sequences();
     seeded_transport_replay();
     print("Transport adapter tests passed");
 }

@@ -32,6 +32,8 @@ jobs:
         run: python scripts/lint.py
       - name: Run test-entry self-tests
         run: python scripts/test_selftest.py
+      - name: Check TCP example resource limits
+        run: python examples/tcp/test_resources.py
       - name: Run interpreter tests
         run: python scripts/test.py
       - name: Install gcc for native builds

@@ -90,12 +90,28 @@ def read_exact(pipe, n: int, deadline: float) -> bytes:
         left = remaining_s(deadline)
         if left <= 0:
             raise BridgeError("CASE_TIMEOUT")
-        # Avoid blocking past the case deadline on the Goose pipe.
-        readable, _, _ = select.select([pipe], [], [], left)
-        if not readable:
-            raise BridgeError("CASE_TIMEOUT")
-        chunk = pipe.read(n - len(buf))
+        operation = "select"
+        try:
+            # Avoid blocking past the case deadline on the Goose pipe. The
+            # watchdog can close the descriptor between the deadline check and
+            # select(), so both readiness and read belong in this race guard.
+            readable, _, _ = select.select([pipe], [], [], left)
+            if not readable:
+                raise BridgeError("CASE_TIMEOUT")
+            operation = "read"
+            chunk = pipe.read(n - len(buf))
+        except (OSError, ValueError) as exc:
+            # The watchdog closes the pipe to interrupt a blocked select/read.
+            # Surface that wakeup as the deadline only after expiry; retain the
+            # operation-specific error when it fails before the deadline.
+            if remaining_s(deadline) <= 0:
+                raise BridgeError("CASE_TIMEOUT") from exc
+            raise BridgeError(f"goose pipe {operation} failed: {exc}") from exc
         if not chunk:
+            # A killed child may close stdout before the watchdog thread closes
+            # the file object; EOF at or after expiry is still a timeout.
+            if remaining_s(deadline) <= 0:
+                raise BridgeError("CASE_TIMEOUT")
             raise BridgeError(f"goose pipe EOF after {len(buf)}/{n} bytes")
         buf.extend(chunk)
     return bytes(buf)
