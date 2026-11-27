@@ -1,6 +1,7 @@
 # M3 loopback broker publish/receive baseline
 
-Captured 2026-11-27 from the benchmark worktree based on `3c77de90`. The
+Captured 2026-11-27 from the benchmark worktree based on `3c77de90`, with
+the measured implementation recorded in `45d4fb1`. The
 machine-readable [raw record](m3-broker-loopback.json) contains seven batch
 samples per broker and payload size, all 28,000 per-echo latency samples,
 sampled RSS, source SHA-256 identities, broker configuration identities,

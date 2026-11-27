@@ -232,7 +232,7 @@ def main() -> int:
                     "bench_run.py": HERE / "bench_run.py",
                     "run_interop.py": HERE / "run_interop.py",
                     "stream.goose": ROOT / "examples" / "stream" / "stream.goose",
-                    "honkmqtt.goose": ROOT / "honkmqtt.goose",
+                    **{path.name: path for path in sorted(ROOT.glob("*.goose"))},
                     "mosquitto.conf.in": HERE / "brokers" / "mosquitto.conf.in",
                     "aedes_package.json": HERE / "brokers" / "package.json",
                     "aedes_server.js": HERE / "brokers" / "aedes_server.js",
