@@ -197,6 +197,21 @@ fn client_id_arg() -> u8[>..] {
     return out;
 }
 
+fn number_arg(index: i64, fallback: i64, maximum: i64) -> i64 {
+    let a = args();
+    if a.len <= index { return fallback; }
+    if a[index].len == 0 { return fallback; }
+    var value = 0;
+    for i in a[index].len {
+        let c = a[index][i] as i64;
+        if c < 48 || c > 57 { return fallback; }
+        let digit = c - 48;
+        if value > (maximum - digit) / 10 { return -1; }
+        value = value * 10 + digit;
+    }
+    return value;
+}
+
 fn eq_str(a: const u8[:], b: const u8[:]) -> bool {
     if a.len != b.len { return false; }
     for i in a.len { if a[i] != b[i] { return false; } }
@@ -358,6 +373,75 @@ fn do_publish_exchange(
     }
 }
 
+fn bench_payload_byte(index: i64, sequence: i64) -> u8 {
+    if index == 0 { return ((sequence / 16777216) % 256) as u8; }
+    if index == 1 { return ((sequence / 65536) % 256) as u8; }
+    if index == 2 { return ((sequence / 256) % 256) as u8; }
+    if index == 3 { return (sequence % 256) as u8; }
+    return ((index * 131 + 0x41 + sequence * 17) % 256) as u8;
+}
+
+fn expect_bench_payload(
+    view:      const u8[:],
+    topic_o:   i64,
+    topic_n:   i64,
+    pay_o:     i64,
+    end:       i64,
+    payload_n: i64,
+    sequence:  i64,
+) -> bool {
+    let want_topic: u8[4] = [0x6d, 0x33, 0x2f, 0x74]; // m3/t
+    if topic_n != want_topic.len { return false; }
+    if !eq_bytes(view[topic_o..topic_o + topic_n], want_topic) { return false; }
+    if end - pay_o != payload_n { return false; }
+    for i in payload_n {
+        if view[pay_o + i] != bench_payload_byte(i, sequence) { return false; }
+    }
+    return true;
+}
+
+fn do_bench_exchange(
+    rx:       u8[:], rx_s: i64&, rx_e: i64&,
+    tx:       u8[:], tx_s: i64&, tx_e: i64&,
+    chunk:    u8[>..]&, payload_n: i64, sequence: i64, sample_index: i64,
+    measured: bool, starts: i64[:], ends: i64[:],
+) {
+    let start_tick = clock_ns();
+    var pkt: u8[TX_CAP] = [0; TX_CAP];
+    let topic: u8[4] = [0x6d, 0x33, 0x2f, 0x74];
+    var payload: u8[240] = [0; 240];
+    if payload_n < 4 || payload_n > payload.len { fail("payload size out of range"); }
+    for i in payload_n { payload[i] = bench_payload_byte(i, sequence); }
+    let es, en = honkmqtt::encode_publish(false, 0, false, topic, 0, payload[0..payload_n], pkt);
+    if es != honkmqtt::OK { fail("encode_publish"); }
+    enqueue_packet(tx, tx_s, tx_e, pkt[0..en]);
+    loop {
+        let fs, used = honkmqtt::frame(rx[rx_s..rx_e], MAX_BODY);
+        if fs == honkmqtt::OK {
+            let view = rx[rx_s..rx_s + used];
+            let ps, consumed, to, tn, po, _ = honkmqtt::publish(view, MAX_BODY);
+            if ps != honkmqtt::OK || consumed != used { fail("benchmark echo PUBLISH parse"); }
+            if !expect_bench_payload(view, to, tn, po, consumed, payload_n, sequence) {
+                fail("benchmark echo payload mismatch");
+            }
+            let _, ns, ne = stream::commit_rx(rx_s, rx_e, used);
+            rx_s = ns;
+            rx_e = ne;
+            if measured {
+                let end_tick = clock_ns();
+                starts[sample_index] = start_tick;
+                ends[sample_index] = end_tick;
+            }
+            return;
+        }
+        if fs == honkmqtt::INVALID { fail("invalid benchmark echo frame"); }
+        let fr = feed_socket(rx, rx_s, rx_e, chunk);
+        if fr == 1 { fail(chunk); }
+        if fr == 2 { continue; }
+        if chunk.len == 0 { fail("EOF before benchmark echo"); }
+    }
+}
+
 fn do_ping(
     rx:    u8[:],
     rx_s:  i64&,
@@ -495,6 +579,49 @@ fn run_positive(client_id: const u8[:]) {
     emit(MSG_DONE, [0]);
 }
 
+fn run_benchmark(client_id: const u8[:], payload_n: i64, warmup_n: i64, measured_n: i64) {
+    var rx: u8[RX_CAP] = [0; RX_CAP];
+    var tx: u8[TX_CAP] = [0; TX_CAP];
+    var rx_s = 0;
+    var rx_e = 0;
+    var tx_s = 0;
+    var tx_e = 0;
+    var chunk:  u8[>..]   = [];
+    var starts: i64[1000] = [0; 1000];
+    var ends:   i64[1000] = [0; 1000];
+    if payload_n < 4 || payload_n > 240 || warmup_n < 0 || warmup_n > 50
+        || measured_n < 1 || measured_n > starts.len {
+        fail("bad benchmark arguments");
+    }
+    do_connect(rx, rx_s, rx_e, tx, tx_s, tx_e, client_id, chunk);
+    do_subscribe(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk);
+    for i in warmup_n {
+        do_bench_exchange(
+            rx, rx_s, rx_e, tx, tx_s, tx_e, chunk, payload_n, i, 0, false, starts, ends,
+        );
+    }
+    emit_event("BENCH_MEASURE_BEGIN");
+    for i in measured_n {
+        do_bench_exchange(
+            rx, rx_s, rx_e, tx, tx_s, tx_e, chunk, payload_n, warmup_n + i, i,
+            true, starts, ends,
+        );
+    }
+    emit_event("BENCH_MEASURE_END");
+    for i in measured_n {
+        var sample: u8[>..] = [];
+        for c in "BENCH_SAMPLE " { sample.push(c); }
+        format(sample, i);
+        sample.push(' ');
+        format(sample, starts[i]);
+        sample.push(' ');
+        format(sample, ends[i]);
+        emit_event(sample);
+    }
+    do_disconnect(tx, tx_s, tx_e);
+    emit(MSG_DONE, [0]);
+}
+
 fn run_malformed(client_id: const u8[:]) {
     var rx: u8[RX_CAP] = [0; RX_CAP];
     var tx: u8[TX_CAP] = [0; TX_CAP];
@@ -549,6 +676,13 @@ fn main() {
     let cid = client_id_arg();
     if eq_str(scen, "positive") {
         run_positive(cid);
+    } else if eq_str(scen, "benchmark") {
+        run_benchmark(
+            cid,
+            number_arg(3, 16, 240),
+            number_arg(4, 10, 50),
+            number_arg(5, 50, 1000),
+        );
     } else if eq_str(scen, "malformed") {
         run_malformed(cid);
     } else if eq_str(scen, "reconnect") {

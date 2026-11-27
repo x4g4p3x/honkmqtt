@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import errno
+import json
 import os
 import select
 import socket
@@ -122,6 +123,8 @@ def run_bridge(
     host: str,
     port: int,
     case_timeout_s: float = CASE_TIMEOUT_S,
+    rss_observation: Optional[dict] = None,
+    rss_extra_pid: Optional[int] = None,
 ) -> Tuple[int, List[str], Optional[str]]:
     """Run Goose session with TCP bridge. Returns (exit_code, events, peer_close)."""
     events: List[str] = []
@@ -138,6 +141,49 @@ def run_bridge(
         bufsize=0,
     )
     assert proc.stdin is not None and proc.stdout is not None
+
+    sampler_done = threading.Event()
+    sampler: Optional[threading.Thread] = None
+    if rss_observation is not None:
+        rss_observation.update({
+            "bridge_peak_kib": None,
+            "goose_peak_kib": None,
+            "broker_peak_kib": None,
+            "combined_sampled_sum_max_kib": None,
+            "sampling_interval_ms": 1,
+        })
+
+        def read_rss_kib(pid: int) -> Optional[int]:
+            try:
+                with open(f"/proc/{pid}/status", "r", encoding="ascii") as status:
+                    for row in status:
+                        if row.startswith("VmRSS:"):
+                            return int(row.split()[1])
+            except (OSError, ValueError):
+                return None
+            return None
+
+        def sample_rss() -> None:
+            while not sampler_done.is_set():
+                bridge_rss = read_rss_kib(os.getpid())
+                goose_rss = read_rss_kib(proc.pid)
+                broker_rss = read_rss_kib(rss_extra_pid) if rss_extra_pid else None
+                for key, value in (
+                    ("bridge_peak_kib", bridge_rss),
+                    ("goose_peak_kib", goose_rss),
+                    ("broker_peak_kib", broker_rss),
+                ):
+                    if value is not None:
+                        rss_observation[key] = max(rss_observation[key] or 0, value)
+                if bridge_rss is not None and goose_rss is not None and broker_rss is not None:
+                    total = bridge_rss + goose_rss + broker_rss
+                    rss_observation["combined_sampled_sum_max_kib"] = max(
+                        rss_observation["combined_sampled_sum_max_kib"] or 0, total
+                    )
+                sampler_done.wait(0.001)
+
+        sampler = threading.Thread(target=sample_rss, name="rss-sampler", daemon=True)
+        sampler.start()
 
     def watchdog() -> None:
         delay = remaining_s(deadline)
@@ -213,7 +259,8 @@ def run_bridge(
                     peer_close = reason
                     write_msg(proc.stdin, MSG_ERR, reason.encode("utf-8"))
             elif kind == MSG_EVENT:
-                events.append(payload.decode("utf-8", errors="replace"))
+                event = payload.decode("utf-8", errors="replace")
+                events.append(event)
             elif kind == MSG_DONE:
                 code = payload[0] if payload else 0
                 timed_out.set()  # stop watchdog wait
@@ -235,6 +282,9 @@ def run_bridge(
             else:
                 raise BridgeError(f"unknown goose msg {kind}")
     finally:
+        sampler_done.set()
+        if sampler is not None:
+            sampler.join(timeout=1)
         timed_out.set()
         try:
             sock.close()
@@ -267,21 +317,29 @@ def main() -> int:
     p.add_argument("--port", type=int, required=True)
     p.add_argument("--goose", default=os.environ.get("GOOSE", "goose"))
     p.add_argument("--session", required=True, help="path to session.goose")
+    p.add_argument("--native", action="store_true", help="goose is a compiled executable rather than the Goose CLI")
     p.add_argument("--scenario", default="positive")
     p.add_argument("--client-id", default="honk-m3")
     p.add_argument("--case-timeout", type=float, default=CASE_TIMEOUT_S)
+    p.add_argument("--session-arg", action="append", default=[])
+    p.add_argument("--observe", action="store_true", help="sample bridge, Goose and optional broker RSS")
+    p.add_argument("--rss-extra-pid", type=int, default=None)
     args = p.parse_args()
 
-    cmd = [
-        args.goose,
-        args.session,
-        "--",
-        args.scenario,
-        args.client_id,
-    ]
+    if args.native:
+        cmd = [args.goose, args.scenario, args.client_id, *args.session_arg]
+    else:
+        cmd = [args.goose, args.session, "--", args.scenario, args.client_id, *args.session_arg]
+    rss_observation = {} if args.observe else None
+
     try:
         code, events, peer_close = run_bridge(
-            cmd, args.host, args.port, case_timeout_s=args.case_timeout
+            cmd,
+            args.host,
+            args.port,
+            case_timeout_s=args.case_timeout,
+            rss_observation=rss_observation,
+            rss_extra_pid=args.rss_extra_pid,
         )
     except BridgeError as exc:
         print(f"BRIDGE_FAIL {exc}", file=sys.stderr)
@@ -297,6 +355,8 @@ def main() -> int:
         f"io_timeout_s={IO_TIMEOUT_S} case_timeout_s={args.case_timeout}"
     )
     print(f"EXIT {code}")
+    if rss_observation is not None:
+        print("RSS " + json.dumps(rss_observation, sort_keys=True))
     return 0 if code == 0 else 1
 
 
