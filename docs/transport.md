@@ -79,9 +79,10 @@ of framing, typed packet parsing, and buffer cursors. The bridge returns
 the actual socket send count and honors a bounded receive request.
 
 The recorded loopback runs use Mosquitto 2.0.18 and Aedes 0.51.3. Each
-broker was tested for publish delivery, closure on malformed input, and
-reconnection. The malformed case accepts a confirmed EOF or reset, and a
-timeout fails that case.
+broker was tested for QoS 0, 1, and 2 publish delivery, unsubscribe,
+closure on malformed input, and reconnection. The QoS 1 and 2 cases
+verify identifiers and acknowledgements in both directions. The malformed
+case accepts a confirmed EOF or reset, and a timeout fails that case.
 
 See the setup, limits, and results in the
 [TCP interoperability record](../examples/tcp/INTEROP.md). The

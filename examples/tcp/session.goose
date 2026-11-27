@@ -13,6 +13,8 @@ const RECV_MAX = 64;   // short-read soft cap (also limited by free RX window)
 const IPC_MAX = 512;   // hard cap on one IPC payload
 const KEEP_ALIVE = 30;
 const SUB_ID = 7;
+const UNSUB_ID = 8;
+const PUBLISH_ID = 0x1234;
 
 // Goose -> bridge
 const MSG_SEND = 1;
@@ -273,6 +275,18 @@ fn do_connect(
     }
 }
 
+fn next_frame_length(rx: u8[:], rx_s: i64&, rx_e: i64&, chunk: u8[>..]&) -> i64 {
+    loop {
+        let status, used = honkmqtt::frame(rx[rx_s..rx_e], MAX_BODY);
+        if status == honkmqtt::OK { return used; }
+        if status != honkmqtt::INCOMPLETE { fail("invalid MQTT frame"); }
+        let result = feed_socket(rx, rx_s, rx_e, chunk);
+        if result == 1 { fail(chunk); }
+        if result != 0 { fail("incomplete frame filled the RX window"); }
+        if chunk.len == 0 { fail("EOF before complete MQTT frame"); }
+    }
+}
+
 fn do_subscribe(
     rx:    u8[:],
     rx_s:  i64&,
@@ -281,34 +295,51 @@ fn do_subscribe(
     tx_s:  i64&,
     tx_e:  i64&,
     chunk: u8[>..]&,
+    qos:   i64,
 ) {
-    let list: u8[7] = [0x00, 0x04, 0x6d, 0x33, 0x2f, 0x74, 0x00]; // m3/t qos0
+    let list: u8[7] = [0x00, 0x04, 0x6d, 0x33, 0x2f, 0x74, qos as u8]; // m3/t
     var pkt: u8[TX_CAP] = [0; TX_CAP];
     let es, en = honkmqtt::encode_subscribe(SUB_ID, list, pkt);
     if es != honkmqtt::OK { fail("encode_subscribe"); }
     enqueue_packet(tx, tx_s, tx_e, pkt[0..en]);
 
-    loop {
-        let fs, used = honkmqtt::frame(rx[rx_s..rx_e], MAX_BODY);
-        if fs == honkmqtt::OK {
-            let ss, consumed, id, co, cl = honkmqtt::suback(rx[rx_s..rx_s + used], MAX_BODY);
-            if ss != honkmqtt::OK || consumed != used { fail("suback parse"); }
-            if id != SUB_ID { fail("suback id mismatch"); }
-            if cl < 1 { fail("suback empty codes"); }
-            let code = rx[rx_s + co] as i64;
-            if code != 0 { fail("suback code"); }
-            let _, ns, ne = stream::commit_rx(rx_s, rx_e, used);
-            rx_s = ns;
-            rx_e = ne;
-            emit_event("SUBACK id=7 code=0");
-            return;
-        }
-        if fs == honkmqtt::INVALID { fail("frame invalid during suback"); }
-        let fr = feed_socket(rx, rx_s, rx_e, chunk);
-        if fr == 1 { fail(chunk); }
-        if fr == 2 { continue; }
-        if chunk.len == 0 { fail("EOF before SUBACK"); }
-    }
+    let used = next_frame_length(rx, rx_s, rx_e, chunk);
+    let ss, consumed, id, co, cl = honkmqtt::suback(rx[rx_s..rx_s + used], MAX_BODY);
+    if ss != honkmqtt::OK || consumed != used { fail("suback parse"); }
+    if id != SUB_ID { fail("suback id mismatch"); }
+    if cl != 1 || rx[rx_s + co] != qos { fail("suback did not grant requested QoS"); }
+    let _, ns, ne = stream::commit_rx(rx_s, rx_e, used);
+    rx_s = ns;
+    rx_e = ne;
+    var event: u8[>..] = [];
+    for c in "SUBACK id=7 code=" { event.push(c); }
+    format(event, qos);
+    emit_event(event);
+}
+
+fn do_unsubscribe(
+    rx:    u8[:],
+    rx_s:  i64&,
+    rx_e:  i64&,
+    tx:    u8[:],
+    tx_s:  i64&,
+    tx_e:  i64&,
+    chunk: u8[>..]&,
+) {
+    let list: u8[6] = [0x00, 0x04, 0x6d, 0x33, 0x2f, 0x74]; // m3/t
+    var pkt: u8[TX_CAP] = [0; TX_CAP];
+    let es, en = honkmqtt::encode_unsubscribe(UNSUB_ID, list, pkt);
+    if es != honkmqtt::OK { fail("encode_unsubscribe"); }
+    enqueue_packet(tx, tx_s, tx_e, pkt[0..en]);
+
+    let used = next_frame_length(rx, rx_s, rx_e, chunk);
+    let status, consumed, id = honkmqtt::unsuback(rx[rx_s..rx_s + used]);
+    if status != honkmqtt::OK || consumed != used { fail("unsuback parse"); }
+    if id != UNSUB_ID { fail("unsuback id mismatch"); }
+    let _, ns, ne = stream::commit_rx(rx_s, rx_e, used);
+    rx_s = ns;
+    rx_e = ne;
+    emit_event("UNSUBACK id=8");
 }
 
 fn expect_topic_payload(
@@ -370,6 +401,92 @@ fn do_publish_exchange(
         if fr == 1 { fail(chunk); }
         if fr == 2 { continue; }
         if chunk.len == 0 { fail("EOF before PUBLISH echo"); }
+    }
+}
+
+fn send_publish_ack(tx: u8[:], tx_s: i64&, tx_e: i64&, kind: i64, id: i64) {
+    var ack: u8[4] = [0; 4];
+    let status, written = honkmqtt::encode_pubresp(kind, id, ack);
+    if status != honkmqtt::OK { fail("encode publish acknowledgement"); }
+    enqueue_packet(tx, tx_s, tx_e, ack[0..written]);
+}
+
+fn check_publish_ack(input: const u8[:], kind: i64, expected_id: i64) {
+    let status, consumed, id = honkmqtt::pubresp(input, kind);
+    if status != honkmqtt::OK || consumed != input.len { fail("parse publish acknowledgement"); }
+    if id != expected_id { fail("publish acknowledgement id mismatch"); }
+}
+
+// The two directions have separate packet identifiers and can interleave.
+// This fixture drives one exchange per direction on a clean connection.
+fn do_qos_exchange(
+    rx:    u8[:],
+    rx_s:  i64&,
+    rx_e:  i64&,
+    tx:    u8[:],
+    tx_s:  i64&,
+    tx_e:  i64&,
+    chunk: u8[>..]&,
+    qos:   i64,
+) {
+    var pkt: u8[TX_CAP] = [0; TX_CAP];
+    let status, written = honkmqtt::encode_publish(false, qos, false, "m3/t", PUBLISH_ID, "hi!", pkt);
+    if status != honkmqtt::OK { fail("encode QoS PUBLISH"); }
+    enqueue_packet(tx, tx_s, tx_e, pkt[0..written]);
+    emit_event("PUBLISH to broker");
+
+    var next_outbound = honkmqtt::PUBACK;
+    if qos == 2 { next_outbound = honkmqtt::PUBREC; }
+    var inbound_id = 0;
+    var inbound_done = false;
+    while next_outbound != 0 || !inbound_done {
+        let used = next_frame_length(rx, rx_s, rx_e, chunk);
+        let view = rx[rx_s..rx_s + used];
+        let kind = (view[0] / 16) as i64;
+        if kind == 3 {
+            if inbound_id != 0 { fail("unexpected second PUBLISH echo"); }
+            let ps, consumed, to, tn, po, id = honkmqtt::publish(view, MAX_BODY);
+            if ps != honkmqtt::OK || consumed != used { fail("parse QoS PUBLISH echo"); }
+            if (view[0] / 2) % 4 != qos || id == 0 { fail("PUBLISH echo QoS mismatch"); }
+            if !expect_topic_payload(view, to, tn, po, consumed) { fail("PUBLISH topic/payload mismatch"); }
+            inbound_id = id;
+            emit_event("PUBLISH from broker verified");
+            if qos == 1 {
+                send_publish_ack(tx, tx_s, tx_e, honkmqtt::PUBACK, inbound_id);
+                emit_event("PUBACK to broker");
+                inbound_done = true;
+            } else {
+                send_publish_ack(tx, tx_s, tx_e, honkmqtt::PUBREC, inbound_id);
+                emit_event("PUBREC to broker");
+            }
+        } else if kind == honkmqtt::PUBREL {
+            if qos != 2 || inbound_id == 0 || inbound_done { fail("unexpected inbound PUBREL"); }
+            check_publish_ack(view, kind, inbound_id);
+            emit_event("PUBREL from broker");
+            send_publish_ack(tx, tx_s, tx_e, honkmqtt::PUBCOMP, inbound_id);
+            emit_event("PUBCOMP to broker");
+            inbound_done = true;
+        } else if kind == next_outbound {
+            check_publish_ack(view, kind, PUBLISH_ID);
+            if kind == honkmqtt::PUBREC {
+                emit_event("PUBREC from broker");
+                send_publish_ack(tx, tx_s, tx_e, honkmqtt::PUBREL, PUBLISH_ID);
+                emit_event("PUBREL to broker");
+                next_outbound = honkmqtt::PUBCOMP;
+            } else {
+                if kind == honkmqtt::PUBACK {
+                    emit_event("PUBACK from broker");
+                } else {
+                    emit_event("PUBCOMP from broker");
+                }
+                next_outbound = 0;
+            }
+        } else {
+            fail("unexpected packet during QoS exchange");
+        }
+        let _, ns, ne = stream::commit_rx(rx_s, rx_e, used);
+        rx_s = ns;
+        rx_e = ne;
     }
 }
 
@@ -572,9 +689,26 @@ fn run_positive(client_id: const u8[:]) {
     emit_event("BOUNDS rx=256 tx=256 max_body=251 recv_max=64 ipc_max=512");
     emit_event("BRIDGE_MODEL send_ack=socket.send_count recv_cap=min(64,rx_tail_free)");
     do_connect(rx, rx_s, rx_e, tx, tx_s, tx_e, client_id, chunk);
-    do_subscribe(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk);
+    do_subscribe(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk, 0);
     do_publish_exchange(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk);
     do_ping(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk);
+    do_disconnect(tx, tx_s, tx_e);
+    emit(MSG_DONE, [0]);
+}
+
+fn run_qos(client_id: const u8[:], qos: i64) {
+    var rx: u8[RX_CAP] = [0; RX_CAP];
+    var tx: u8[TX_CAP] = [0; TX_CAP];
+    var rx_s = 0;
+    var rx_e = 0;
+    var tx_s = 0;
+    var tx_e = 0;
+    var chunk: u8[>..] = [];
+
+    do_connect(rx, rx_s, rx_e, tx, tx_s, tx_e, client_id, chunk);
+    do_subscribe(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk, qos);
+    do_qos_exchange(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk, qos);
+    do_unsubscribe(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk);
     do_disconnect(tx, tx_s, tx_e);
     emit(MSG_DONE, [0]);
 }
@@ -594,7 +728,7 @@ fn run_benchmark(client_id: const u8[:], payload_n: i64, warmup_n: i64, measured
         fail("bad benchmark arguments");
     }
     do_connect(rx, rx_s, rx_e, tx, tx_s, tx_e, client_id, chunk);
-    do_subscribe(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk);
+    do_subscribe(rx, rx_s, rx_e, tx, tx_s, tx_e, chunk, 0);
     for i in warmup_n {
         do_bench_exchange(
             rx, rx_s, rx_e, tx, tx_s, tx_e, chunk, payload_n, i, 0, false, starts, ends,
@@ -676,6 +810,10 @@ fn main() {
     let cid = client_id_arg();
     if eq_str(scen, "positive") {
         run_positive(cid);
+    } else if eq_str(scen, "qos1") {
+        run_qos(cid, 1);
+    } else if eq_str(scen, "qos2") {
+        run_qos(cid, 2);
     } else if eq_str(scen, "benchmark") {
         run_benchmark(
             cid,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run HonkMQTT M3 TCP interop against Mosquitto and Aedes on loopback.
+"""Run HonkMQTT TCP interop against Mosquitto and Aedes on loopback.
 
 Starts ephemeral brokers, drives examples/tcp/session.goose through bridge.py,
 records versions/config hashes and the case matrix. Does not claim protocol
@@ -30,7 +30,18 @@ BROKERS = TCP_DIR / "brokers"
 SESSION = TCP_DIR / "session.goose"
 BRIDGE = TCP_DIR / "bridge.py"
 
-SCENARIOS = ("positive", "malformed", "reconnect")
+SCENARIOS = ("positive", "malformed", "reconnect", "qos1", "qos2")
+
+QOS_EXCHANGES = {
+    "qos1": (
+        ("PUBACK from broker",),
+        ("PUBLISH from broker verified", "PUBACK to broker"),
+    ),
+    "qos2": (
+        ("PUBREC from broker", "PUBREL to broker", "PUBCOMP from broker"),
+        ("PUBLISH from broker verified", "PUBREC to broker", "PUBREL from broker", "PUBCOMP to broker"),
+    ),
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -491,6 +502,20 @@ def start_aedes(workdir: Path, install: Path) -> BrokerProc:
     return BrokerProc("aedes", version, port, proc, conf_hash)
 
 
+def qos_events_ok(scenario: str, events: List[str]) -> bool:
+    outbound, inbound = QOS_EXCHANGES[scenario]
+    prefix = ["CONNACK session=0 code=0", f"SUBACK id=7 code={scenario[-1]}", "PUBLISH to broker"]
+    suffix = ["UNSUBACK id=8", "DISCONNECT sent"]
+    exchanges = events[len(prefix):-len(suffix)]
+    return (
+        events[:len(prefix)] == prefix
+        and events[-len(suffix):] == suffix
+        and len(exchanges) == len(outbound) + len(inbound)
+        and tuple(event for event in exchanges if event in outbound) == outbound
+        and tuple(event for event in exchanges if event in inbound) == inbound
+    )
+
+
 def run_case(
     goose: str,
     broker: BrokerProc,
@@ -558,6 +583,8 @@ def run_case(
         ok = ok and len(connacks) >= 2
         pings = [e for e in events if e.startswith("PINGRESP")]
         ok = ok and len(pings) >= 2
+    elif scenario in QOS_EXCHANGES:
+        ok = ok and peer_close is None and qos_events_ok(scenario, events)
 
     return {
         "broker": broker.name,
@@ -599,6 +626,8 @@ def main() -> int:
         return 2
 
     wanted = [b.strip() for b in args.brokers.split(",") if b.strip()]
+    if not wanted or len(set(wanted)) != len(wanted) or set(wanted) - {"mosquitto", "aedes"}:
+        ap.error("--brokers requires a nonempty, duplicate-free list of mosquitto and/or aedes")
     results: List[Dict] = []
 
     def cmd_version(argv: List[str]) -> str:
@@ -625,6 +654,8 @@ def main() -> int:
         },
         "session_sha256": sha256_file(SESSION),
         "bridge_sha256": sha256_file(BRIDGE),
+        "runner_sha256": sha256_file(Path(__file__)),
+        "codec_sha256": {p.name: sha256_file(p) for p in sorted(ROOT.glob("*.goose"))},
         "stream_sha256": sha256_file(ROOT / "examples" / "stream" / "stream.goose"),
         "toolchain": {
             "python": sys.version.split()[0],
@@ -632,7 +663,8 @@ def main() -> int:
             "node": cmd_version(["node", "--version"]),
             "npm": cmd_version(["npm", "--version"]),
             "goose": goose_ver,
-            "os_uname": " ".join(os.uname()) if hasattr(os, "uname") else sys.platform,
+            "os_uname": " ".join((os.uname().sysname, os.uname().release, os.uname().machine))
+            if hasattr(os, "uname") else sys.platform,
             "platform": sys.platform,
         },
         "bounds": {
@@ -655,7 +687,7 @@ def main() -> int:
             "Python TCP bridge moves bounded socket chunks and returns actual "
             "send() counts; Goose applies stream::feed/frame/commit_rx and "
             "stream::enqueue/drain/commit_tx plus typed codecs. Python does not "
-            "frame MQTT. Core honkmqtt.goose unchanged."
+            "frame MQTT."
         ),
         "broker_listeners": (
             "Harness starts only ephemeral 127.0.0.1 Mosquitto/Aedes children "

@@ -21,8 +21,9 @@ Native mode removes prior output before building and requires a fresh
 executable. Toolchain launch, exit, and parsing errors fail the run.
 
 Run `python scripts/test_selftest.py` after changing the test runner.
-For the TCP bridge resource checks, use `python3 examples/tcp/test_resources.py`
-on Linux or WSL2.
+On Linux or WSL2, use `python3 examples/tcp/test_resources.py` for bridge
+resource checks and `python3 examples/tcp/test_qos_interop.py` for scripted
+QoS exchanges.
 
 ## CI targets
 
@@ -31,7 +32,7 @@ modes, and native tests on these x64 targets.
 
 | GitHub Actions image | Native C compiler |
 | --- | --- |
-| `ubuntu-24.04` | GCC. This job also runs the TCP bridge resource checks. |
+| `ubuntu-24.04` | GCC. This job also runs the TCP bridge resource and QoS exchange checks. |
 | `windows-2022` | MSVC with `GOOSE_CC=msvc`. |
 
 Use the same checks when adding a supported environment.

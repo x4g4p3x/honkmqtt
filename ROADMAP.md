@@ -72,7 +72,9 @@ release runs. The release claim covers the scope supported by the results.
   implemented brokers must exercise connection, subscribe and unsubscribe,
   QoS 0 delivery, the QoS 1 and 2 publish and acknowledgement exchanges, and
   reconnect. The test driver owns session behavior. Record broker versions,
-  cases, results, and which parts of the codec each case validates.
+  cases, results, and which parts of the codec each case validates. The
+  [QoS loopback evidence](examples/tcp/INTEROP.md#qos-1-and-qos-2) covers single
+  exchanges on clean connections. Revalidate the matrix on the release candidate.
 - [ ] **Downstream use under load.** Run a downstream Goose application
   outside the example harness in production or a representative staging
   environment. Use the pinned candidate, the application's normal

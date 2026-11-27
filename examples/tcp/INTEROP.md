@@ -1,4 +1,4 @@
-# M3 TCP broker interop (evidence)
+# TCP broker interoperability
 
 HonkMQTT core stays transport-free. Goose has no TCP API, so this slice uses an
 **honest bridge architecture**:
@@ -68,13 +68,9 @@ file substitutes `@PORT@`. Aedes entrypoint SHA-256 is recorded per run in
 ## Reproduction
 
 ```bash
-# WSL Ubuntu-24.04 (default user root):
-export GOOSE=/root/goose-v2026.4/goose-v2026.4-linux-x64/goose
-# Fresh Aedes parent (runner creates an owned child TemporaryDirectory under it):
-export HONKMQTT_AEDES_NPM=$(mktemp -d)
-# Clean Mosquitto: apt-get download + dpkg-deb -x (no dpkg -i; system unit untouched)
-python3 examples/tcp/run_interop.py --goose "$GOOSE" --extract-mosquitto \
-  --json-out examples/tcp/interop_results.json
+# Ubuntu 24.04 or WSL2 with Mosquitto on PATH
+export GOOSE=/path/to/goose-v2026.4-linux-x64/goose
+python3 examples/tcp/run_interop.py --json-out /tmp/honkmqtt-interop.json
 ```
 
 `--extract-mosquitto` runs `apt-get download mosquitto=2.0.18-1build3` then
@@ -99,12 +95,12 @@ still emits it, then errors, and never reaches `running`.
 Aedes always gets `npm ci --no-fund --no-audit` from the pinned
 `brokers/package-lock.json` into an **owned** `TemporaryDirectory` (optional
 `HONKMQTT_AEDES_NPM` is only the parent). The install lives for the whole
-six-case matrix, then that directory alone is cleaned. Provenance:
+matrix, then that directory alone is cleaned. Provenance:
 `meta.aedes_provenance`. The server binds `127.0.0.1:0` and emits
 `AEDES_READY <port>` via `writeSync`; the harness reads that banner with
 `select`/`os.read` under a hard deadline (never blocking `readline`).
 
-## Case matrix (recorded after acceptance fixes)
+## M3 case matrix
 
 | Broker | Scenario | Result | Peer close |
 |--------|----------|--------|------------|
@@ -129,9 +125,43 @@ Both brokers closed with **EOF** in this run (no RESET/TIMEOUT observed).
 Source hashes for the committed run: see `meta.session_sha256`,
 `meta.bridge_sha256`, and `meta.stream_sha256` in `interop_results.json`.
 
+## QoS 1 and QoS 2
+
+The current runner executes the three M3 cases and two additional cases
+against each broker. The new cases use one clean connection that subscribes
+at the requested QoS, publishes `hi!` to `m3/t`, and receives its own
+publication. The Goose driver checks the granted QoS, exact topic and
+payload, packet identifiers, and acknowledgement order in each direction.
+It then checks the UNSUBACK identifier and sends DISCONNECT.
+
+| Case | Required exchanges in each direction | Mosquitto 2.0.18 | Aedes 0.51.3 |
+| --- | --- | --- | --- |
+| `qos1` | PUBLISH → PUBACK | Pass | Pass |
+| `qos2` | PUBLISH → PUBREC → PUBREL → PUBCOMP | Pass | Pass |
+
+The two directions can interleave. In the recorded QoS 1 runs, Mosquitto
+delivered the inbound PUBLISH before acknowledging the outbound PUBLISH.
+Aedes sent the acknowledgement first. Both orders were verified. The
+[M4 run record](m4-interop-results.json) contains all ten case results, event
+traces, broker versions, and source hashes for the Ubuntu 24.04 WSL2 run
+on 2026-11-27. [MQTT 3.1.1, §§4.3.2 and 4.3.3](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html)
+
+Run the scripted loopback tests on Linux or WSL2 with Goose available.
+They use literal MQTT frames to exercise interleaved QoS 2 exchanges
+with the same numeric Packet Identifier in both directions, a fragmented
+acknowledgement, a wrong PUBACK identifier, an out-of-order PUBCOMP,
+and EOF partway through an acknowledgement.
+
+```sh
+python3 examples/tcp/test_qos_interop.py
+```
+
 ## Limitations
 
 - Not sockets inside Goose; WSL must use Linux Node/Mosquitto for loopback.
-- QoS1/2, auth, TLS, MQTT 5, multi-client fan-out out of scope.
+- The QoS 1 and 2 cases cover single exchanges on clean connections.
+  Retransmission, persistence, and concurrent publications remain outside
+  this evidence. Application code owns session and QoS state.
+- Auth, TLS, MQTT 5, and multi-client fan-out are outside these cases.
 - Malformed coverage is one reserved-type probe, not a full adversarial corpus.
 - Passing this matrix is not MQTT conformance certification.

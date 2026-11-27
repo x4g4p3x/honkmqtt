@@ -1,0 +1,292 @@
+{
+  "meta": {
+    "repo_paths": {
+      "session": "examples/tcp/session.goose",
+      "bridge": "examples/tcp/bridge.py",
+      "stream": "examples/stream/stream.goose",
+      "brokers": "examples/tcp/brokers"
+    },
+    "session_sha256": "bb16692db863b5c7bc675e9ac3bebcc7704818f8bdcecf84124cbdb29118f8a4",
+    "bridge_sha256": "bd0b8bd1de12e3658dee626d95f68b088091624f8b52f3439c5185dfe1dc71e3",
+    "runner_sha256": "6db79824c9b8c5aedb8126b7a407b70130a88113c8bfb82c850e3bccf361525f",
+    "codec_sha256": {
+      "connect.goose": "31599832ea91fe8b06b332ee3f413fca0d6e13d3d1622d8f954620281c8537e1",
+      "control.goose": "7a2d532d59cd3743cfa1cbf7c770bc900e42386f454f3aea2cc51e383ca5b456",
+      "honkmqtt.goose": "49f422b8c9806e66a9d12e6eb42d6fe08080ae89ebb0bd1e634022cf65abd07f",
+      "publish.goose": "bb91b9749b809ac9a0ff5dec4fe8905aa9eb98bcd2f5463c7a2bb18eaddafcf5",
+      "subscriptions.goose": "d6d4cb015731073872671609270e52ff5a24f0d72c70f27506a977e69c7ce5f8",
+      "topics.goose": "e24db9f1baaea489ad3c14b90496e6dbd4a79cf3b08a930b0580ccba147a31a3",
+      "wire.goose": "afbd8a6b5630fef648fb453f4b9aa8d056ae5ee6fbcc0e78a10be35c79c35f44"
+    },
+    "stream_sha256": "5eaa10314d98df22f761017a656bd353745deb3970e41005914964630c5b1f15",
+    "toolchain": {
+      "python": "3.12.3",
+      "python_implementation": "3.12.3 (main, Jul 15 2026, 23:46:41) [GCC 13.3.0]",
+      "node": "v18.19.1",
+      "npm": "9.2.0",
+      "goose": "goose v2026.4 (runtime dce889723a23)",
+      "os_uname": "Linux 6.18.58.1-microsoft-standard-WSL2 x86_64",
+      "platform": "linux"
+    },
+    "bounds": {
+      "rx_cap": 256,
+      "tx_cap": 256,
+      "max_body": 251,
+      "recv_max": 64,
+      "recv_cap_rule": "min(64, rx_tail_free); compact when tail full; reset empty window at capacity",
+      "connect_deadline": "fail if remaining<=0; else min(2.0, remaining)",
+      "ipc_max": 512,
+      "connect_timeout_s": 2.0,
+      "io_timeout_s": 2.0,
+      "case_timeout_s": 15.0,
+      "send_ack": "socket.send byte count; Goose commit_tx(exact)"
+    },
+    "architecture": "Python TCP bridge moves bounded socket chunks and returns actual send() counts; Goose applies stream::feed/frame/commit_rx and stream::enqueue/drain/commit_tx plus typed codecs. Python does not frame MQTT.",
+    "broker_listeners": "Harness starts only ephemeral 127.0.0.1 Mosquitto/Aedes children in a TemporaryDirectory (cleaned up on exit). It does not stop, disable, or manage any system mosquitto.service unit.",
+    "aedes_install": "npm ci --no-fund --no-audit from brokers/package-lock.json into an owned TemporaryDirectory (optional HONKMQTT_AEDES_NPM parent only); listen 127.0.0.1:0 and read bounded AEDES_READY <port> banner",
+    "mosquitto_provenance": {
+      "method": "PATH binary (no --extract-mosquitto)",
+      "binary": "/usr/sbin/mosquitto",
+      "note": "reused host PATH mosquitto; system unit untouched"
+    },
+    "aedes_provenance": {
+      "method": "npm ci into owned TemporaryDirectory",
+      "parent": null,
+      "install_dir": "/tmp/honkmqtt-aedes-d1l2ek1m",
+      "package_json": "examples/tcp/brokers/package.json",
+      "package_lock": "examples/tcp/brokers/package-lock.json",
+      "aedes_server": "examples/tcp/brokers/aedes_server.js",
+      "command": "/usr/bin/npm ci --no-fund --no-audit",
+      "aedes_version": "0.51.3",
+      "lock_sha256": "c5a128d79a945a0cfbc3370f9de4353a8c79ce02aab502124e7bbaf5a5a726a1",
+      "server_sha256": "3192fa1103cffdab69d8848d1b04e5edafc0f5b5de80e2f713f914ab5152b688"
+    }
+  },
+  "results": [
+    {
+      "broker": "mosquitto",
+      "broker_version": "2.0.18",
+      "broker_conf_sha256": "9c85cf995e3d68a02e108c5c25dbe4f31ddfaa59ae57ae8e1d59fe2cd42c1d08",
+      "scenario": "positive",
+      "client_id": "honk-m3-mosquitto-positive",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "BOUNDS rx=256 tx=256 max_body=251 recv_max=64 ipc_max=512",
+        "BRIDGE_MODEL send_ack=socket.send_count recv_cap=min(64,rx_tail_free)",
+        "CONNACK session=0 code=0",
+        "SUBACK id=7 code=0",
+        "PUBLISH qos0 sent",
+        "PUBLISH verified topic=m3/t payload=hi!",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    },
+    {
+      "broker": "mosquitto",
+      "broker_version": "2.0.18",
+      "broker_conf_sha256": "9c85cf995e3d68a02e108c5c25dbe4f31ddfaa59ae57ae8e1d59fe2cd42c1d08",
+      "scenario": "malformed",
+      "client_id": "honk-m3-mosquitto-malformed",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "MALFORMED sent type=0",
+        "PEER_CLOSE reason=EOF",
+        "RECONNECTED after malformed",
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": "EOF",
+      "stderr": ""
+    },
+    {
+      "broker": "mosquitto",
+      "broker_version": "2.0.18",
+      "broker_conf_sha256": "9c85cf995e3d68a02e108c5c25dbe4f31ddfaa59ae57ae8e1d59fe2cd42c1d08",
+      "scenario": "reconnect",
+      "client_id": "honk-m3-mosquitto-reconnect",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent",
+        "RECONNECTED",
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    },
+    {
+      "broker": "mosquitto",
+      "broker_version": "2.0.18",
+      "broker_conf_sha256": "9c85cf995e3d68a02e108c5c25dbe4f31ddfaa59ae57ae8e1d59fe2cd42c1d08",
+      "scenario": "qos1",
+      "client_id": "honk-m3-mosquitto-qos1",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "SUBACK id=7 code=1",
+        "PUBLISH to broker",
+        "PUBLISH from broker verified",
+        "PUBACK to broker",
+        "PUBACK from broker",
+        "UNSUBACK id=8",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    },
+    {
+      "broker": "mosquitto",
+      "broker_version": "2.0.18",
+      "broker_conf_sha256": "9c85cf995e3d68a02e108c5c25dbe4f31ddfaa59ae57ae8e1d59fe2cd42c1d08",
+      "scenario": "qos2",
+      "client_id": "honk-m3-mosquitto-qos2",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "SUBACK id=7 code=2",
+        "PUBLISH to broker",
+        "PUBREC from broker",
+        "PUBREL to broker",
+        "PUBLISH from broker verified",
+        "PUBREC to broker",
+        "PUBCOMP from broker",
+        "PUBREL from broker",
+        "PUBCOMP to broker",
+        "UNSUBACK id=8",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    },
+    {
+      "broker": "aedes",
+      "broker_version": "0.51.3",
+      "broker_conf_sha256": "3192fa1103cffdab69d8848d1b04e5edafc0f5b5de80e2f713f914ab5152b688",
+      "scenario": "positive",
+      "client_id": "honk-m3-aedes-positive",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "BOUNDS rx=256 tx=256 max_body=251 recv_max=64 ipc_max=512",
+        "BRIDGE_MODEL send_ack=socket.send_count recv_cap=min(64,rx_tail_free)",
+        "CONNACK session=0 code=0",
+        "SUBACK id=7 code=0",
+        "PUBLISH qos0 sent",
+        "PUBLISH verified topic=m3/t payload=hi!",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    },
+    {
+      "broker": "aedes",
+      "broker_version": "0.51.3",
+      "broker_conf_sha256": "3192fa1103cffdab69d8848d1b04e5edafc0f5b5de80e2f713f914ab5152b688",
+      "scenario": "malformed",
+      "client_id": "honk-m3-aedes-malformed",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "MALFORMED sent type=0",
+        "PEER_CLOSE reason=EOF",
+        "RECONNECTED after malformed",
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": "EOF",
+      "stderr": ""
+    },
+    {
+      "broker": "aedes",
+      "broker_version": "0.51.3",
+      "broker_conf_sha256": "3192fa1103cffdab69d8848d1b04e5edafc0f5b5de80e2f713f914ab5152b688",
+      "scenario": "reconnect",
+      "client_id": "honk-m3-aedes-reconnect",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent",
+        "RECONNECTED",
+        "CONNACK session=0 code=0",
+        "PINGRESP ok",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    },
+    {
+      "broker": "aedes",
+      "broker_version": "0.51.3",
+      "broker_conf_sha256": "3192fa1103cffdab69d8848d1b04e5edafc0f5b5de80e2f713f914ab5152b688",
+      "scenario": "qos1",
+      "client_id": "honk-m3-aedes-qos1",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "SUBACK id=7 code=1",
+        "PUBLISH to broker",
+        "PUBACK from broker",
+        "PUBLISH from broker verified",
+        "PUBACK to broker",
+        "UNSUBACK id=8",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    },
+    {
+      "broker": "aedes",
+      "broker_version": "0.51.3",
+      "broker_conf_sha256": "3192fa1103cffdab69d8848d1b04e5edafc0f5b5de80e2f713f914ab5152b688",
+      "scenario": "qos2",
+      "client_id": "honk-m3-aedes-qos2",
+      "ok": true,
+      "bridge_returncode": 0,
+      "goose_exit": 0,
+      "events": [
+        "CONNACK session=0 code=0",
+        "SUBACK id=7 code=2",
+        "PUBLISH to broker",
+        "PUBREC from broker",
+        "PUBREL to broker",
+        "PUBLISH from broker verified",
+        "PUBREC to broker",
+        "PUBCOMP from broker",
+        "PUBREL from broker",
+        "PUBCOMP to broker",
+        "UNSUBACK id=8",
+        "DISCONNECT sent"
+      ],
+      "peer_close": null,
+      "stderr": ""
+    }
+  ],
+  "failed": 0
+}

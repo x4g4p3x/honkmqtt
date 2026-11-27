@@ -325,6 +325,13 @@ def run_bridge(
             proc.wait(timeout=2)
         except Exception:
             pass
+        finally:
+            for pipe in (proc.stdin, proc.stdout, proc.stderr):
+                if pipe is not None:
+                    try:
+                        pipe.close()
+                    except OSError:
+                        pass
 
 
 def main() -> int:
