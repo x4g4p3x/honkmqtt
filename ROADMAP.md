@@ -15,7 +15,7 @@ MQTT 5 support is a later product decision, not an implicit commitment.
 
 As of M0 Exit on `cf8dbed`, M1 Exit on `fc12ece` (`encode_publish` baselines),
 M2 Exit on `bb5e5d3` (all 14 MQTT 3.1.1 types with typed parse/encode), and the
-M3 transport work (in progress), the library has fixed-header
+M3 transport work below, the library has fixed-header
 parsing, bounded frame detection, opaque-body encoding, PUBLISH parse/encode
 with limit vectors, PUBACK/PUBREC/PUBREL/PUBCOMP, CONNACK, CONNECT,
 SUBSCRIBE/SUBACK, UNSUBSCRIBE/UNSUBACK, PINGREQ/PINGRESP/DISCONNECT
@@ -186,7 +186,7 @@ intentional protocol deviations, including non-minimal remaining lengths.
 **M2 Exit criteria satisfied** on main at `bb5e5d3` (still not a conformance,
 security, or interoperability claim).
 
-### M3 — Integration and interoperability evidence (in progress)
+### M3 — Integration and interoperability evidence
 
 - [x] Bounded transport adapter example that handles partial reads and writes
   without making the core own I/O; explicitly bound buffering. Evidence:
@@ -206,20 +206,27 @@ security, or interoperability claim).
   on loopback; positive / malformed (EOF vs RESET vs TIMEOUT classified) /
   reconnect matrix in `examples/tcp/INTEROP.md` and
   `examples/tcp/interop_results.json`. Core unchanged. Not conformance.
-- [ ] Run a repeatable fuzz/randomized campaign and assess failures, memory
-  limits, denial-of-service behavior, and independent protocol vectors. Add
-  regressions. The seeded replay checks short I/O for a fixed MQTT stream,
-  buffer occupancy, bounded replay progress, and zero consumption at the
-  configured body limit. [Transport regression record](examples/stream/REGRESSION.md)
-  `tests/fuzz.goose` supplies separate codec smoke evidence. Broader randomized
-  transport inputs and TCP, bridge, and process resource limits remain open.
-- [ ] Test end-to-end representative workloads; record throughput, latency,
-  memory, runtime configuration and variability without universal speed claims.
+- [x] Run reproducible randomized and resource checks. The seeded campaigns
+  exercise 128 short-I/O schedules and 64 varied packet streams against
+  independent wire vectors. The Linux resource smoke checks IPC admission,
+  capped socket reads and watchdog cleanup. The evidence covers bounded
+  cases using the documented adapter and example process configuration.
+  [Transport regression record](examples/stream/REGRESSION.md)
+- [x] Record end-to-end throughput, latency, sampled memory, and variability
+  for 16- and 192-byte QoS 0 loopback echoes using both brokers. The
+  measurement includes Goose encoding and validation, IPC, TCP and broker
+  processing on Ubuntu under WSL2.
+  [Broker benchmark and raw samples](baselines/m3-broker-loopback.md)
 
 **Exit:** reproducible interoperability and safety evidence covers the declared
 codec behavior, with outstanding failures and untested requirements documented.
 Passing selected tests is not certification or proof of complete safety.
-M3 remains **in progress** until the unchecked items above are evidenced.
+**2026-11-27 integration check:** the combined modular codec, transport changes,
+and benchmark passed lint and all 13 tests in normal, debug, and native modes
+on Windows and Ubuntu under WSL2. The loopback resource checks and all six
+broker interoperability cases passed. A second full benchmark on the combined
+code verified 28,000 echoes. Broader traffic mixes, multiple clients, and
+production resource behavior remain open.
 
 ### M4 — Stable codec release decision
 
@@ -228,6 +235,17 @@ M3 remains **in progress** until the unchecked items above are evidenced.
   security reporting process. Resolve or clearly disclose material gaps.
 - Decide whether the evidence supports a stable codec release; make the
   decision separately from implementation and document residual limitations.
+
+The first preview, `v0.1.0-alpha.1`, covers the MQTT 3.1.1 codec. The
+[versioning policy](VERSIONING.md) defines the public API, compatibility
+rules, and release process. Verified CI targets are Windows x64 and Ubuntu
+x64 with Goose v2026.4.
+
+The preview scope is structural encode/decode and topic matching. The broker
+evidence uses an example Python TCP bridge and a single in-flight QoS 0 echo.
+Defer a stable tag until the project confirms the stable API and establishes a
+private reporting channel. GitHub private vulnerability reporting was
+disabled when checked on 2026-11-27.
 
 **Exit:** a reviewed release decision and reproducible evidence; do not label
 the library production-ready or conformant solely because this plan is complete.

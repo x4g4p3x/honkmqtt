@@ -45,13 +45,28 @@ stable HonkMQTT core API and does not perform network I/O; callers apply
 
 It does **not** validate application payloads, implement QoS/session state,
 perform network I/O, support MQTT 5 properties, or claim protocol conformance.
-It rejects non-minimal remaining-length encodings. Applications must validate
-other packet bodies before acting on untrusted data. The UTF-8 checks enforce
+It rejects non-minimal remaining-length encodings. After using `frame` to
+find a packet boundary, use the packet-specific parser to validate the body
+before acting on it. The UTF-8 checks enforce
 well-formed Unicode scalar values and exclude U+0000; they do not reject
 additional code points discouraged by MQTT. Do not use this as a security
 boundary or production MQTT implementation yet.
 
-The fixed-header and frame functions accept `const u8[:]` and return status codes; `frame` reports how many bytes to consume only on success. Keep incomplete input in your own bounded buffer and retry after receiving more data. Supply a maximum permitted body size to `frame` to limit buffering. `encode` and `encode_publish` require non-overlapping caller-owned output buffers; `encode_pubresp`, `encode_connack`, `encode_connect`, `encode_subscribe`, `encode_suback`, `encode_unsubscribe`, `encode_unsuback`, `encode_pingreq`, `encode_pingresp`, and `encode_disconnect` also write into a caller-owned `out`. The library never owns the transport.
+`header(input)` returns `(status, header_length, body_length)` when the fixed
+header is complete. `frame(input, max_body)` returns `(status, consumed)` when
+the whole frame is available. Keep incomplete input in your own bounded buffer
+and retry after receiving more data. Supply a maximum permitted body size to
+`frame` to limit buffering. Both functions return zero counts on failure.
+`encode(first, body, out)` validates framing flags and writes the header and
+opaque body into a disjoint caller-owned buffer. It returns
+`(status, bytes_written)` and leaves `out` untouched on failure. The framing
+status constants are `OK`, `INCOMPLETE`, `INVALID`, and `NO_SPACE`.
+
+`valid_utf8(text)`, `valid_topic(topic)`, `valid_filter(filter)`, and
+`matches(filter, topic)` return booleans. Topic names and filters must be
+nonempty and fit in a 16-bit length field. `matches` validates both arguments
+and applies MQTT's wildcard rules, including the restriction on matching
+topics starting with `$` using a leading wildcard.
 
 `publish(input, max_body)` accepts a complete or partial MQTT 3.1.1 PUBLISH
 frame and returns `(status, consumed, topic_offset, topic_length,
@@ -250,7 +265,8 @@ Not a socket stack inside the library and not conformance certification.
 
 ## Use
 
-Install [Goose](https://github.com/aardappel/goose) v2026.4 or newer. Pin a commit or release tag when consuming this pre-release library. For local development:
+Install [Goose](https://github.com/aardappel/goose) v2026.4 or newer. Releases
+follow [Semantic Versioning](VERSIONING.md). For local development:
 
 ```goose
 import honkmqtt from "../honkmqtt";
@@ -262,7 +278,15 @@ fn main() {
 }
 ```
 
-From a project elsewhere, the import can use `"x4g4p3x/honkmqtt@<commit>"`. See [Goose package documentation](https://aardappel.github.io/goose/docs/packages.html) for pinned Git imports and updates.
+From a project elsewhere, pin a release tag or a commit. The first preview
+uses this import.
+
+```goose
+import honkmqtt from "x4g4p3x/honkmqtt@v0.1.0-alpha.1";
+```
+
+Check the release notes before upgrading a preview.
+[Goose package documentation](https://aardappel.github.io/goose/docs/packages.html)
 
 ```sh
 python scripts/lint.py
@@ -383,6 +407,12 @@ an interoperability or conformance suite. The protocol reference is the
 [OASIS MQTT 3.1.1 standard](https://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html).
 
 ### Optimized-build baselines
+
+The [M3 broker benchmark](baselines/m3-broker-loopback.md) measures verified
+QoS 0 publish/receive exchanges on loopback through the example TCP bridge.
+It records 16- and 192-byte payloads, repeated timings, sampled process memory,
+and the Mosquitto and Aedes versions. Reproduction and raw samples are in the
+benchmark record.
 
 Use `python scripts/bench.py --warmup 1 --samples 7` to build `-O2` natives,
 discard warmup, and record at least seven serialized steady-state samples for:
