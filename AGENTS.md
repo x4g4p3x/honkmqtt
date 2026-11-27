@@ -6,6 +6,7 @@ topic-filter library written in Goose. `honkmqtt.goose` is the package entry;
 `subscriptions.goose`, and `control.goose` are implementation modules.
 `tests/test.goose` and `examples/basic.goose` exercise its public API. Read
 the README and `ROADMAP.md` for scope, limitations and milestone criteria.
+The codec reference and verification guide are in `docs/`.
 Use `VERSIONING.md` to classify public API and compatibility changes.
 Project-specific Codex workflows are in `.agents/skills/`.
 
@@ -37,5 +38,5 @@ Project-specific Codex workflows are in `.agents/skills/`.
   `python scripts/bench.py` (warmup + ≥7 serialized samples, checksum checks).
   Preserve safety checks and correctness; report the workload, variability, and
   limitations. Do not add timing assertions to ordinary tests.
-- Do not commit generated executables or build artifacts. Keep public API and
-  README examples consistent with intentional behavioral changes.
+- Do not commit generated executables or build artifacts. Keep `docs/api.md`
+  and the README examples consistent with intentional behavioral changes.
