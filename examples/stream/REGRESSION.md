@@ -96,7 +96,7 @@ It also checks the declared errors for a watchdog-interrupted pipe read. Run it
 with `python3 examples/tcp/test_resources.py`; it does not start a broker or
 contact an external host.
 
-## Remaining M3 work
+## Scope of the evidence
 
 The seeded replay varies the I/O schedule over one fixed byte stream; the
 additional campaign varies frame order, frame count, and read fragmentation
@@ -104,7 +104,7 @@ over a bounded set of valid wire vectors. This remains a deterministic smoke
 campaign, not fuzzing, exhaustive sequence coverage, a memory-safety proof, or
 an MQTT conformance result. The TCP smoke covers one loopback read cap, an IPC
 size boundary, and one silent-child deadline path; it does not characterize
-resource use under load or every cleanup/error branch. Representative end-to-end
-throughput, latency, memory, runtime configuration, and variability remain
-unmeasured.
-The separate loopback broker evidence comes from PR #16. [TCP interop record](../tcp/INTEROP.md)
+resource use under load or every cleanup/error branch. The loopback broker
+tests and benchmark record throughput, latency, sampled memory, configuration,
+and variability for the documented example workloads.
+[TCP interop record](../tcp/INTEROP.md) · [Broker benchmark](../../baselines/m3-broker-loopback.md)

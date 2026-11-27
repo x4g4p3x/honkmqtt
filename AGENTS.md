@@ -6,6 +6,7 @@ topic-filter library written in Goose. `honkmqtt.goose` is the package entry;
 `subscriptions.goose`, and `control.goose` are implementation modules.
 `tests/test.goose` and `examples/basic.goose` exercise its public API. Read
 the README and `ROADMAP.md` for scope, limitations and milestone criteria.
+Use `VERSIONING.md` to classify public API and compatibility changes.
 Project-specific Codex workflows are in `.agents/skills/`.
 
 ## Verification
