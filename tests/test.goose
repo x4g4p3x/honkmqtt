@@ -1,6 +1,9 @@
 import honkmqtt from "..";
+import wire from "./fixtures/wire";
 
+// A downstream package named wire guards HonkMQTT relative module imports.
 fn main() {
+    assert(wire::fixture_marker() == 17);
     let s, h, n = honkmqtt::header([0x30, 0x80, 0x01]);
     assert(s == honkmqtt::OK && h == 3 && n == 128);
     let a, _, _ = honkmqtt::header([0x30, 0x80]); assert(a == honkmqtt::INCOMPLETE);
